@@ -81,6 +81,9 @@ def extract_events_from_text(
         f"topic_tags (array using only: {', '.join(APPROVED_TAGS)}), "
         f"description (1-3 sentences), "
         f"source_url (direct RSVP link if found, otherwise {source_url!r}). "
+        f"For each event, the source_url must be the direct URL to that specific event's detail page, "
+        f"not the calendar page URL. If you can find individual event links on the page, use those. "
+        f"If not, use the source URL as fallback. "
         f"Return [] if no upcoming events found.\n\n"
         f"Page content:\n{page_text}"
     )
@@ -102,15 +105,19 @@ def extract_events_from_text(
 
 
 def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
-    """Fetch the event's source_url and fill in missing start_time, end_time, location, description."""
+    """Fetch the event's source_url and fill in missing date, start_time, end_time, location, description."""
     needs_start = str(event.get("start_time", "")).strip() in ("", "00:00")
     needs_end = str(event.get("end_time", "")).strip() == ""
-    if not (needs_start or needs_end):
+    needs_date = str(event.get("date", "")).strip() == ""
+    if not (needs_start or needs_end or needs_date):
         return event
 
     source_url = str(event.get("source_url", "")).strip()
     if not source_url:
         return event
+
+    event_name = str(event.get("name", "unknown")).strip()
+    print(f"  Enriching: {event_name} from {source_url}")
 
     try:
         resp = requests.get(source_url, headers=BROWSER_HEADERS, timeout=30)
@@ -126,9 +133,12 @@ def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
     lines = [line for line in text.splitlines() if line.strip()]
     page_content = "\n".join(lines)[:8000]
 
+    print(f"  Got {len(page_content)} chars from detail page")
+
     prompt = (
         "Extract event details from this page content and return ONLY a valid JSON object "
-        "with these fields: start_time (HH:MM 24-hour format or empty string if not found), "
+        "with these fields: name (string or empty), date (YYYY-MM-DD or empty string if not found), "
+        "start_time (HH:MM 24-hour format or empty string if not found), "
         "end_time (HH:MM 24-hour format or empty string if not found), "
         "location (venue name and address or empty string), "
         "description (1-3 sentence summary or empty string). "
@@ -152,6 +162,8 @@ def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
             raw += block.text
 
     raw = raw.strip()
+    print(f"  Enrichment result: {raw[:500]}")
+
     start = raw.find("{")
     end = raw.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -166,6 +178,8 @@ def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
         return event
 
     enriched = dict(event)
+    if needs_date and details.get("date", "").strip():
+        enriched["date"] = details["date"].strip()
     if needs_start and details.get("start_time", "").strip():
         enriched["start_time"] = details["start_time"].strip()
     if needs_end and details.get("end_time", "").strip():
@@ -329,7 +343,9 @@ def main():
     for event in all_events:
         ok, reason = is_valid_event(event)
         if not ok:
-            print(f"  SKIP (invalid — {reason}): {event}")
+            name = event.get("name", "unknown") if isinstance(event, dict) else "unknown"
+            src = event.get("source_url", "") if isinstance(event, dict) else ""
+            print(f"  SKIP (invalid — {reason}): {name!r}  source_url={src}")
             skipped += 1
             continue
 
