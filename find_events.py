@@ -405,6 +405,7 @@ def main():
     end_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+    print(f"Sources configured: {SOURCES}")
     print(f"Processing {len(SOURCES)} source(s) ({today} → {end_date})…")
     all_events: list[dict] = []
 
