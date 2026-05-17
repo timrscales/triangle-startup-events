@@ -916,11 +916,6 @@ def create_event_record(event: dict) -> dict:
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
     }
-    friendly = format_friendly_date(
-        event.get("date", ""), event.get("start_time", ""), event.get("end_time", "")
-    )
-    if friendly:
-        fields["Friendly Date"] = friendly
     organizer = str(event.get("organizer", "")).strip()
     if organizer:
         fields["Organizer"] = organizer

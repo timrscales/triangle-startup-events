@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Triangle Startup Events — Prototype</title>
+
+<link rel="stylesheet" href="assets/colors_and_type.css" />
+
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--paper-2);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    overflow: hidden;
+  }
+  /* slide-in animations used by detail panel / submit modal */
+  @keyframes tseSlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  @keyframes tseSlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  /* clean focus rings */
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--rdsw-blue);
+    outline-offset: 1px;
+  }
+  /* hide scrollbars on filter row */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(107, 119, 133, 0.25); }
+  ::-webkit-scrollbar-track { background: transparent; }
+  /* design canvas wrapper */
+  #root { width: 100vw; height: 100vh; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="data.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="ios-frame.jsx"></script>
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="app-shell.jsx"></script>
+  <script type="text/babel" src="app-views.jsx"></script>
+  <script type="text/babel" src="app-main.jsx"></script>
+
+  <script type="text/babel">
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "cardLayout": "standard"
+    }/*EDITMODE-END*/;
+
+    function Root() {
+      const t = useTweaks(TWEAK_DEFAULTS);
+      const cardLayout = t.cardLayout;
+
+      return (
+        <>
+          <DesignCanvas defaultZoom={0.55}>
+            <DCSection id="main" title="Triangle Startup Events" subtitle="A redesign of timrscales.github.io/triangle-startup-events">
+
+              <DCArtboard id="desktop" label="Desktop · 1440 × 900" width={1440} height={900}>
+                <TriangleEventsApp device="desktop" cardVariant={cardLayout} />
+              </DCArtboard>
+
+              <DCArtboard id="mobile" label="Mobile · iPhone 15 Pro" width={420} height={900}>
+                <div style={{ width: 420, height: 900, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--paper-2)" }}>
+                  <IOSDevice width={390} height={844} screenStyle={{ background: "var(--paper)" }}>
+                    <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+                      <TriangleEventsApp device="mobile" cardVariant={cardLayout} />
+                    </div>
+                  </IOSDevice>
+                </div>
+              </DCArtboard>
+
+            </DCSection>
+          </DesignCanvas>
+
+          <TweaksPanel title="Tweaks">
+            <TweakSection title="List card layout" subtitle="Three options for the chronological feed. The detail panel, calendar pills, and week blocks stay consistent across all three.">
+              <TweakRadio
+                value={t.cardLayout}
+                onChange={(v) => t.setTweak("cardLayout", v)}
+                options={[
+                  { label: "Compact", value: "compact" },
+                  { label: "Standard", value: "standard" },
+                  { label: "Visual", value: "visual" },
+                ]}
+              />
+            </TweakSection>
+            <TweakSection title="Try this" subtitle="">
+              <div style={{ fontSize: 13, color: "var(--ink-3, #3D4754)", lineHeight: 1.5 }}>
+                <ol style={{ margin: 0, paddingLeft: 18 }}>
+                  <li>Switch to <b>List</b> view, then flip the card layout above.</li>
+                  <li>Click any event to open the detail panel.</li>
+                  <li>Use the filter dropdowns (City, Event type, Audience, Topic).</li>
+                  <li>Hit the <b>Submit an event</b> button in the top right.</li>
+                </ol>
+              </div>
+            </TweakSection>
+          </TweaksPanel>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+  </script>
+</body>
+</html>
