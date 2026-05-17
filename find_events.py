@@ -24,32 +24,24 @@ def search_events() -> str:
     today = datetime.now().strftime("%Y-%m-%d")
     end_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
 
-    prompt = f"""Search the web for free in-person events for startup founders and entrepreneurs
-in Raleigh, Durham, Chapel Hill, Cary, and Research Triangle Park, North Carolina.
+    prompt = f"""Search the web for free in-person events for startup founders and entrepreneurs in Raleigh, Durham, Chapel Hill, Cary, and Research Triangle Park, North Carolina.
 
 Today is {today}. Search for events from now through {end_date}.
 
-Search Eventbrite, Meetup, local startup community sites (NC IDEA, American Underground,
-Triangle Startup Hub, CED), local chambers of commerce, and any other relevant local sources.
+Search Meetup.com, lu.ma, eventbrite.com, nctech.org, ffvcnc.org, americanunderground.com, and any other relevant local sources.
 
-After gathering results, return ONLY a valid JSON array. Each element must have these exact keys:
-  "name"        — event name (string)
-  "date"        — date in YYYY-MM-DD format (string)
-  "start_time"  — start time in HH:MM 24-hour format; use "00:00" if unknown (string)
-  "end_time"    — end time in HH:MM 24-hour format; use "" if unknown (string)
-  "location"    — venue name and full address (string)
-  "topic_tags"  — relevant tags such as networking, fundraising, AI, etc. (array of strings)
-  "description" — 1–3 sentence summary (string)
-  "source_url"  — URL where you found the event (string)
+CRITICAL INSTRUCTIONS:
+- You MUST return a JSON array even if details are incomplete
+- If you cannot find end time, use empty string ""
+- If you cannot find exact address, use city name
+- If date is uncertain for a recurring event, calculate the next likely occurrence
+- Never refuse to return JSON — always return your best effort
+- Return AT LEAST the recurring events you know about: 1 Million Cups RTP, Founders Local, Triangle Startup Collective, Pull-Up at Provident
 
-Include ONLY events that are:
-  1. Free to attend (no ticket price)
-  2. In-person (not virtual or hybrid)
-  3. Relevant to startup founders or entrepreneurs
-  4. In Raleigh, Durham, Chapel Hill, Cary, or Research Triangle Park, NC
-  5. Scheduled between {today} and {end_date} inclusive
+Return ONLY a valid JSON array with no other text. Each element must have:
+  "name", "date" (YYYY-MM-DD), "start_time" (HH:MM), "end_time" (HH:MM or ""), "location", "topic_tags" (array), "description", "source_url"
 
-Respond with ONLY the JSON array — no markdown, no explanation, no other text."""
+Start your response with [ and end with ]"""
 
     messages = [{"role": "user", "content": prompt}]
 
