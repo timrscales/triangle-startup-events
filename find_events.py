@@ -56,6 +56,7 @@ Start your response with [ and end with ]"""
         if response.stop_reason == "end_turn":
             for block in response.content:
                 if block.type == "text":
+                    print(f"DEBUG Claude response: {block.text[:2000]}")
                     return block.text
             return "[]"
 
@@ -67,6 +68,7 @@ Start your response with [ and end with ]"""
         # Unexpected stop reason — return any text found
         for block in response.content:
             if hasattr(block, "type") and block.type == "text":
+                print(f"DEBUG Claude response: {block.text[:2000]}")
                 return block.text
         break
 
