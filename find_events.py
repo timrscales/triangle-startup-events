@@ -57,7 +57,7 @@ Respond with ONLY the JSON array — no markdown, no explanation, no other text.
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=8192,
-            tools=[{"type": "web_search_20260209", "name": "web_search"}],
+            tools=[{"type": "web_search_20260209", "name": "web_search", "allowed_callers": ["direct"]}],
             messages=messages,
         )
 
