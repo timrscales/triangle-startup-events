@@ -17,22 +17,35 @@ AIRTABLE_BASE_ID = "apprt7MFT8PcVhFY4"
 AIRTABLE_TABLE_NAME = "Events"
 AIRTABLE_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
 
+# Phase 1 sources — add new URLs here, or add a new fetcher function for Phase 2 (Eventbrite, Meetup)
+SOURCES = [
+    "https://www.lilalearning.org/event-list",
+    "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
+    "https://lu.ma/raleighdurhamstartupweek",
+]
 
-def search_events() -> str:
-    """Call Claude with web search to find startup events, then format as JSON."""
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    today = datetime.now().strftime("%Y-%m-%d")
-    end_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
+APPROVED_TAGS = [
+    "networking", "fundraising", "pitch practice", "startup founders", "entrepreneurship",
+    "technology", "AI", "life science", "small business", "happy hour", "panel discussion",
+    "workshop", "mentorship", "investor relations", "marketing", "legal", "finance", "hiring",
+]
 
-    # First call: search the web for events
-    search_prompt = f"""Search the web for free in-person events for startup founders and entrepreneurs in Raleigh, Durham, Chapel Hill, Cary, and Research Triangle Park, North Carolina between {today} and {end_date}.
 
-Search Meetup.com, lu.ma, eventbrite.com, nctech.org, ffvcnc.org, americanunderground.com, wraltechwire.com, and any other relevant local sources.
+def fetch_events_from_url(client: anthropic.Anthropic, url: str, today: str, end_date: str) -> list[dict]:
+    """Ask Claude to fetch and parse events from a single URL."""
+    prompt = (
+        f"Fetch and read this page: {url}. "
+        f"Extract all upcoming in-person events and return ONLY a valid JSON array. "
+        f"Each object must have: name (string), date (YYYY-MM-DD), start_time (HH:MM or 00:00), "
+        f"end_time (HH:MM or empty string), location (string), "
+        f"topic_tags (array, only use: {', '.join(APPROVED_TAGS)}), "
+        f"description (1-3 sentences), source_url (the RSVP or event detail URL). "
+        f"Only include events from today {today} through {end_date}. "
+        f"Return [ ] if no events found. Start response with [ and end with ]."
+    )
 
-List every free in-person startup or entrepreneur event you find with as much detail as possible: name, date, time, location, description, and URL."""
-
-    messages = [{"role": "user", "content": search_prompt}]
-    raw_text = ""
+    messages = [{"role": "user", "content": prompt}]
+    collected_text = ""
 
     for _ in range(10):
         response = client.messages.create(
@@ -45,63 +58,30 @@ List every free in-person startup or entrepreneur event you find with as much de
         if response.stop_reason == "end_turn":
             for block in response.content:
                 if hasattr(block, "type") and block.type == "text":
-                    raw_text += block.text
+                    collected_text += block.text
             break
 
         if response.stop_reason == "pause_turn":
             messages.append({"role": "assistant", "content": response.content})
             for block in response.content:
                 if hasattr(block, "type") and block.type == "text":
-                    raw_text += block.text
+                    collected_text += block.text
             continue
 
         for block in response.content:
             if hasattr(block, "type") and block.type == "text":
-                raw_text += block.text
+                collected_text += block.text
         break
 
-    print(f"DEBUG raw search text length: {len(raw_text)} chars")
-    print(f"DEBUG raw search preview: {raw_text[:500]}")
-
-    if not raw_text:
-        return "[]"
-
-    # Second call: format the raw text as clean JSON
-    format_prompt = f"""Convert the following event information into a JSON array. Return ONLY the JSON array starting with [ and ending with ]. No other text before or after.
-
-Each event object must have these exact keys:
-  "name", "date" (YYYY-MM-DD), "start_time" (HH:MM or "00:00"), "end_time" (HH:MM or ""), "location", "description", "source_url"
-  "topic_tags" — array of strings, but you MUST only use tags from this approved list:
-  ["networking", "fundraising", "pitch practice", "startup founders", "entrepreneurship",
-  "technology", "AI", "life science", "small business", "happy hour", "panel discussion",
-  "workshop", "mentorship", "investor relations", "marketing", "legal", "finance", "hiring"]
-  Choose the 1-3 most relevant tags from this list only. Never invent new tags.
-
-Only include free in-person events for startup founders or entrepreneurs in the Triangle NC area between {today} and {end_date}.
-If a field is unknown use your best estimate. Never omit an event just because some fields are missing.
-
-Event information to convert:
-{raw_text}"""
-
-    format_response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": format_prompt}],
-    )
-
-    for block in format_response.content:
-        if hasattr(block, "type") and block.type == "text":
-            print(f"DEBUG format response preview: {block.text[:500]}")
-            return block.text
-
-    return "[]"
+    events = parse_events(collected_text)
+    print(f"  Found {len(events)} event(s) from {url}")
+    return events
 
 
 def parse_events(text: str) -> list[dict]:
-    """Extract the JSON events array from Claude's response text."""
+    """Extract the JSON events array from a text response."""
     text = text.strip()
 
-    # Try direct parse first
     try:
         data = json.loads(text)
         if isinstance(data, list):
@@ -109,7 +89,6 @@ def parse_events(text: str) -> list[dict]:
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Try extracting from markdown code blocks
     match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
     if match:
         try:
@@ -119,18 +98,18 @@ def parse_events(text: str) -> list[dict]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Find the first [ and last ] and extract everything between
     start = text.find("[")
     end = text.rfind("]")
     if start != -1 and end != -1 and end > start:
         try:
-            data = json.loads(text[start:end+1])
+            data = json.loads(text[start:end + 1])
             if isinstance(data, list):
                 return data
         except (json.JSONDecodeError, ValueError):
             pass
 
-    print(f"WARNING: Could not parse JSON from response:\n{text[:800]}")
+    if text:
+        print(f"  WARNING: Could not parse JSON:\n  {text[:400]}")
     return []
 
 
@@ -212,13 +191,20 @@ def main():
     if not AIRTABLE_API_KEY:
         sys.exit("ERROR: AIRTABLE_API_KEY is not set.")
 
-    print("Searching for events via Claude + web search…")
-    raw = search_events()
+    today = datetime.now().strftime("%Y-%m-%d")
+    end_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    events = parse_events(raw)
-    print(f"Claude returned {len(events)} event(s).")
+    print(f"Fetching events from {len(SOURCES)} source(s) ({today} → {end_date})…")
+    all_events: list[dict] = []
+    for url in SOURCES:
+        print(f"Fetching: {url}")
+        events = fetch_events_from_url(client, url, today, end_date)
+        all_events.extend(events)
 
-    if not events:
+    print(f"\nTotal events found: {len(all_events)}")
+
+    if not all_events:
         print("Nothing to add.")
         return
 
@@ -228,7 +214,7 @@ def main():
 
     added = skipped = errors = 0
 
-    for event in events:
+    for event in all_events:
         ok, reason = is_valid_event(event)
         if not ok:
             print(f"  SKIP (invalid — {reason}): {event}")
