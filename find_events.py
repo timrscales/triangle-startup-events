@@ -19,58 +19,75 @@ AIRTABLE_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_
 
 
 def search_events() -> str:
-    """Call Claude with web search to find startup events. Returns raw text response."""
+    """Call Claude with web search to find startup events, then format as JSON."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     today = datetime.now().strftime("%Y-%m-%d")
     end_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
 
-    prompt = f"""Search the web for free in-person events for startup founders and entrepreneurs in Raleigh, Durham, Chapel Hill, Cary, and Research Triangle Park, North Carolina.
+    # First call: search the web for events
+    search_prompt = f"""Search the web for free in-person events for startup founders and entrepreneurs in Raleigh, Durham, Chapel Hill, Cary, and Research Triangle Park, North Carolina between {today} and {end_date}.
 
-Today is {today}. Search for events from now through {end_date}.
+Search Meetup.com, lu.ma, eventbrite.com, nctech.org, ffvcnc.org, americanunderground.com, wraltechwire.com, and any other relevant local sources.
 
-Search Meetup.com, lu.ma, eventbrite.com, nctech.org, ffvcnc.org, americanunderground.com, and any other relevant local sources.
+List every free in-person startup or entrepreneur event you find with as much detail as possible: name, date, time, location, description, and URL."""
 
-CRITICAL INSTRUCTIONS:
-- You MUST return a JSON array even if details are incomplete
-- If you cannot find end time, use empty string ""
-- If you cannot find exact address, use city name
-- If date is uncertain for a recurring event, calculate the next likely occurrence
-- Never refuse to return JSON — always return your best effort
-- Return AT LEAST the recurring events you know about: 1 Million Cups RTP, Founders Local, Triangle Startup Collective, Pull-Up at Provident
+    messages = [{"role": "user", "content": search_prompt}]
+    raw_text = ""
 
-Return ONLY a valid JSON array with no other text. Each element must have:
-  "name", "date" (YYYY-MM-DD), "start_time" (HH:MM), "end_time" (HH:MM or ""), "location", "topic_tags" (array), "description", "source_url"
-
-Start your response with [ and end with ]"""
-
-    messages = [{"role": "user", "content": prompt}]
-
-    for _ in range(10):  # Guard against infinite pause_turn loops
+    for _ in range(10):
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=8192,
+            max_tokens=4096,
             tools=[{"type": "web_search_20260209", "name": "web_search", "allowed_callers": ["direct"]}],
             messages=messages,
         )
 
         if response.stop_reason == "end_turn":
             for block in response.content:
-                if block.type == "text":
-                    print(f"DEBUG Claude response: {block.text[:2000]}")
-                    return block.text
-            return "[]"
+                if hasattr(block, "type") and block.type == "text":
+                    raw_text += block.text
+            break
 
         if response.stop_reason == "pause_turn":
-            # Server-side tool loop hit its iteration limit; append and re-call without a new user message
             messages.append({"role": "assistant", "content": response.content})
+            for block in response.content:
+                if hasattr(block, "type") and block.type == "text":
+                    raw_text += block.text
             continue
 
-        # Unexpected stop reason — return any text found
         for block in response.content:
             if hasattr(block, "type") and block.type == "text":
-                print(f"DEBUG Claude response: {block.text[:2000]}")
-                return block.text
+                raw_text += block.text
         break
+
+    print(f"DEBUG raw search text length: {len(raw_text)} chars")
+    print(f"DEBUG raw search preview: {raw_text[:500]}")
+
+    if not raw_text:
+        return "[]"
+
+    # Second call: format the raw text as clean JSON
+    format_prompt = f"""Convert the following event information into a JSON array. Return ONLY the JSON array starting with [ and ending with ]. No other text before or after.
+
+Each event object must have these exact keys:
+  "name", "date" (YYYY-MM-DD), "start_time" (HH:MM or "00:00"), "end_time" (HH:MM or ""), "location", "topic_tags" (array of strings), "description", "source_url"
+
+Only include free in-person events for startup founders or entrepreneurs in the Triangle NC area between {today} and {end_date}.
+If a field is unknown use your best estimate. Never omit an event just because some fields are missing.
+
+Event information to convert:
+{raw_text}"""
+
+    format_response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": format_prompt}],
+    )
+
+    for block in format_response.content:
+        if hasattr(block, "type") and block.type == "text":
+            print(f"DEBUG format response preview: {block.text[:500]}")
+            return block.text
 
     return "[]"
 
