@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 import anthropic
 import requests
+from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
@@ -71,6 +72,93 @@ def fetch_page_text(url: str, max_chars: int = MAX_PAGE_CHARS) -> str | None:
     return cleaned
 
 
+def is_luma_url(url: str) -> bool:
+    return urlparse(url).netloc in ("lu.ma", "www.lu.ma")
+
+
+def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
+    """Fetch events directly from the Luma calendar API and map to our schema."""
+    slug = urlparse(calendar_url).path.strip("/")
+    api_url = f"https://api.lu.ma/calendar/get-items?calendar_api_id={slug}&pagination_limit=50"
+
+    try:
+        resp = requests.get(api_url, headers={"accept": "application/json"}, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        print(f"  ERROR fetching Luma API for {calendar_url}: {exc}")
+        return []
+
+    entries = data.get("entries", [])
+    print(f"  Luma API returned {len(entries)} entries for {calendar_url}")
+
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    events: list[dict] = []
+    for entry in entries:
+        ev = entry.get("event", {})
+        if not ev:
+            continue
+
+        start_raw = ev.get("start_at", "") or ""
+        end_raw = ev.get("end_at", "") or ""
+
+        try:
+            start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+            date_str = start_dt.strftime("%Y-%m-%d")
+            start_time_str = start_dt.strftime("%H:%M")
+        except (ValueError, AttributeError):
+            date_str = ""
+            start_time_str = "00:00"
+
+        if date_str:
+            event_date = datetime.strptime(date_str, "%Y-%m-%d")
+            if event_date < today_dt or event_date > end_dt:
+                continue
+
+        try:
+            end_dt_obj = datetime.fromisoformat(end_raw.replace("Z", "+00:00"))
+            end_time_str = end_dt_obj.strftime("%H:%M")
+        except (ValueError, AttributeError):
+            end_time_str = ""
+
+        geo = ev.get("geo_address_json") or ev.get("geo_address_info") or {}
+        location = (
+            geo.get("full_address")
+            or geo.get("address")
+            or geo.get("city")
+            or ""
+        )
+
+        name = ev.get("name") or ev.get("title") or ""
+        description = ev.get("description") or ev.get("description_md") or ""
+        if isinstance(description, str) and len(description) > 500:
+            description = description[:500].rsplit(" ", 1)[0] + "…"
+
+        event_api_id = ev.get("api_id") or ev.get("url") or ""
+        if event_api_id and not event_api_id.startswith("http"):
+            source_url = f"https://lu.ma/{event_api_id}"
+        elif event_api_id:
+            source_url = event_api_id
+        else:
+            source_url = calendar_url
+
+        events.append({
+            "name": name.strip(),
+            "date": date_str,
+            "start_time": start_time_str,
+            "end_time": end_time_str,
+            "location": location.strip() if location else "",
+            "topic_tags": ["networking", "startup founders"],
+            "description": description.strip(),
+            "source_url": source_url,
+        })
+
+    print(f"  Mapped {len(events)} in-range event(s) from Luma API")
+    return events
+
+
 def extract_events_from_text(
     client: anthropic.Anthropic,
     page_text: str,
@@ -126,9 +214,12 @@ def enrich_event(event: dict, client: anthropic.Anthropic, today: str, calendar_
     if not source_url:
         return event
 
-    if source_url == calendar_url:
+    def _norm(u: str) -> str:
+        return u.rstrip("/").lower()
+
+    if _norm(source_url) == _norm(calendar_url) or _norm(source_url) in [_norm(s) for s in SOURCES]:
         event_name = str(event.get("name", "unknown")).strip()
-        print(f"  SKIP ENRICH (source_url is the calendar page): {event_name!r}")
+        print(f"  SKIP ENRICH (source_url is a calendar page): {event_name!r}")
         return event
 
     event_name = str(event.get("name", "unknown")).strip()
@@ -319,11 +410,14 @@ def main():
 
     for url in SOURCES:
         print(f"Fetching: {url}")
-        page_text = fetch_page_text(url)
-        if not page_text:
-            continue
-        print(f"  Got {len(page_text)} chars — sending to Claude…")
-        events = extract_events_from_text(client, page_text, url, today, end_date)
+        if is_luma_url(url):
+            events = fetch_luma_events(url, today, end_date)
+        else:
+            page_text = fetch_page_text(url)
+            if not page_text:
+                continue
+            print(f"  Got {len(page_text)} chars — sending to Claude…")
+            events = extract_events_from_text(client, page_text, url, today, end_date)
         for event in events:
             event["_calendar_url"] = url  # track origin for enrichment guard
         all_events.extend(events)
