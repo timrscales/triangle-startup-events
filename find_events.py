@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 import anthropic
 import requests
+from bs4 import BeautifulSoup
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
@@ -17,7 +18,15 @@ AIRTABLE_BASE_ID = "apprt7MFT8PcVhFY4"
 AIRTABLE_TABLE_NAME = "Events"
 AIRTABLE_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
 
-# Phase 1 sources — add new URLs here, or add a new fetcher function for Phase 2 (Eventbrite, Meetup)
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+# Phase 1 sources — add new URLs here, or add a custom fetcher function for Phase 2
 SOURCES = [
     "https://www.lilalearning.org/event-list",
     "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
@@ -30,51 +39,65 @@ APPROVED_TAGS = [
     "workshop", "mentorship", "investor relations", "marketing", "legal", "finance", "hiring",
 ]
 
+MAX_PAGE_CHARS = 15000
 
-def fetch_events_from_url(client: anthropic.Anthropic, url: str, today: str, end_date: str) -> list[dict]:
-    """Ask Claude to fetch and parse events from a single URL."""
+
+def fetch_page_text(url: str) -> str | None:
+    """Fetch a URL and return cleaned body text, or None on failure."""
+    try:
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"  ERROR fetching {url}: {exc}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+
+    text = soup.get_text(separator="\n", strip=True)
+    lines = [line for line in text.splitlines() if line.strip()]
+    cleaned = "\n".join(lines)
+
+    return cleaned[:MAX_PAGE_CHARS]
+
+
+def extract_events_from_text(
+    client: anthropic.Anthropic,
+    page_text: str,
+    source_url: str,
+    today: str,
+    end_date: str,
+) -> list[dict]:
+    """Send page text to Claude and extract structured event data."""
     prompt = (
-        f"Fetch and read this page: {url}. "
-        f"Extract all upcoming in-person events and return ONLY a valid JSON array. "
-        f"Each object must have: name (string), date (YYYY-MM-DD), start_time (HH:MM or 00:00), "
-        f"end_time (HH:MM or empty string), location (string), "
-        f"topic_tags (array, only use: {', '.join(APPROVED_TAGS)}), "
-        f"description (1-3 sentences), source_url (the RSVP or event detail URL). "
-        f"Only include events from today {today} through {end_date}. "
-        f"Return [ ] if no events found. Start response with [ and end with ]."
+        f"Extract all upcoming in-person events from this page content. "
+        f"Today is {today}. Only include events between {today} and {end_date}. "
+        f"Return ONLY a valid JSON array starting with [ and ending with ]. "
+        f"Each object must have: name (string), date (YYYY-MM-DD), "
+        f"start_time (HH:MM or 00:00 if unknown), end_time (HH:MM or empty string), "
+        f"location (string), "
+        f"topic_tags (array using only: {', '.join(APPROVED_TAGS)}), "
+        f"description (1-3 sentences), "
+        f"source_url (direct RSVP link if found, otherwise {source_url!r}). "
+        f"Return [] if no upcoming events found.\n\n"
+        f"Page content:\n{page_text}"
     )
 
-    messages = [{"role": "user", "content": prompt}]
-    collected_text = ""
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
 
-    for _ in range(10):
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
-            tools=[{"type": "web_search_20260209", "name": "web_search", "allowed_callers": ["direct"]}],
-            messages=messages,
-        )
+    text = ""
+    for block in response.content:
+        if hasattr(block, "type") and block.type == "text":
+            text += block.text
 
-        if response.stop_reason == "end_turn":
-            for block in response.content:
-                if hasattr(block, "type") and block.type == "text":
-                    collected_text += block.text
-            break
-
-        if response.stop_reason == "pause_turn":
-            messages.append({"role": "assistant", "content": response.content})
-            for block in response.content:
-                if hasattr(block, "type") and block.type == "text":
-                    collected_text += block.text
-            continue
-
-        for block in response.content:
-            if hasattr(block, "type") and block.type == "text":
-                collected_text += block.text
-        break
-
-    events = parse_events(collected_text)
-    print(f"  Found {len(events)} event(s) from {url}")
+    events = parse_events(text)
+    print(f"  Extracted {len(events)} event(s) from {source_url}")
     return events
 
 
@@ -195,11 +218,16 @@ def main():
     end_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    print(f"Fetching events from {len(SOURCES)} source(s) ({today} → {end_date})…")
+    print(f"Processing {len(SOURCES)} source(s) ({today} → {end_date})…")
     all_events: list[dict] = []
+
     for url in SOURCES:
         print(f"Fetching: {url}")
-        events = fetch_events_from_url(client, url, today, end_date)
+        page_text = fetch_page_text(url)
+        if not page_text:
+            continue
+        print(f"  Got {len(page_text)} chars — sending to Claude…")
+        events = extract_events_from_text(client, page_text, url, today, end_date)
         all_events.extend(events)
 
     print(f"\nTotal events found: {len(all_events)}")
