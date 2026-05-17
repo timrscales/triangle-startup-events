@@ -76,6 +76,8 @@ Start your response with [ and end with ]"""
 def parse_events(text: str) -> list[dict]:
     """Extract the JSON events array from Claude's response text."""
     text = text.strip()
+
+    # Try direct parse first
     try:
         data = json.loads(text)
         if isinstance(data, list):
@@ -83,6 +85,7 @@ def parse_events(text: str) -> list[dict]:
     except (json.JSONDecodeError, ValueError):
         pass
 
+    # Try extracting from markdown code blocks
     match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
     if match:
         try:
@@ -92,10 +95,12 @@ def parse_events(text: str) -> list[dict]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    match = re.search(r"\[[\s\S]*\]", text)
-    if match:
+    # Find the first [ and last ] and extract everything between
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
         try:
-            data = json.loads(match.group())
+            data = json.loads(text[start:end+1])
             if isinstance(data, list):
                 return data
         except (json.JSONDecodeError, ValueError):
