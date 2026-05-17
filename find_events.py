@@ -956,8 +956,9 @@ def is_valid_event(event: dict) -> tuple[bool, str]:
 def _summarize_one(name: str, description: str, client: anthropic.Anthropic) -> str:
     """Ask Claude for a single one-sentence event summary."""
     prompt = (
-        f"Write exactly ONE sentence (20–35 words) telling a potential attendee what they will "
-        f"specifically do or learn at this event. Be concrete, not generic.\n\n"
+        f"Summarize this event in exactly ONE sentence (20–35 words). "
+        f"Stay close to the original description — preserve specific details, topics, and format. "
+        f"Write in third person (not 'you'll' or 'join us'). No marketing fluff.\n\n"
         f"Event: {name}\nDescription: {description[:700]}\n\nOne sentence:"
     )
     try:
