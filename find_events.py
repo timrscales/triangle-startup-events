@@ -38,6 +38,7 @@ APPROVED_TAGS = [
     "networking", "fundraising", "pitch practice", "startup founders", "entrepreneurship",
     "technology", "AI", "life science", "small business", "happy hour", "panel discussion",
     "workshop", "mentorship", "investor relations", "marketing", "legal", "finance", "hiring",
+    "celebration",
 ]
 
 MAX_PAGE_CHARS = 15000
