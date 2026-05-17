@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Find free startup events in the NC Triangle area and sync to Airtable."""
+from __future__ import annotations
 
 import json
 import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import anthropic
 import requests
-from urllib.parse import urlparse
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
@@ -19,20 +21,13 @@ AIRTABLE_BASE_ID = "apprt7MFT8PcVhFY4"
 AIRTABLE_TABLE_NAME = "Events"
 AIRTABLE_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
 
-BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-
-
-# Phase 1 sources — add new URLs here, or add a custom fetcher function for Phase 2
-SOURCES = [
-    "https://www.lilalearning.org/event-list",
-    "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
-    "https://lu.ma/raleighdurhamstartupweek",
-    "https://www.meetup.com/triangle-startup-collective/",
-]
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
 
 APPROVED_TAGS = [
     "networking", "fundraising", "pitch practice", "startup founders", "entrepreneurship",
@@ -41,57 +36,185 @@ APPROVED_TAGS = [
     "celebration",
 ]
 
-MAX_PAGE_CHARS = 15000
 
+# ── Lila Learning ─────────────────────────────────────────────────────────────
 
-def fetch_page_text(url: str, max_chars: int = MAX_PAGE_CHARS) -> str | None:
-    """Render a URL with Playwright (headless Chromium) and return body text + links, or None on failure."""
+def fetch_lila_events(today: str, end_date: str) -> list[dict]:
+    """Scrape Lila Learning event list, then fetch each detail page."""
+    list_url = "https://www.lilalearning.org/event-list"
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(user_agent=BROWSER_USER_AGENT)
-            page.goto(url, timeout=30000)
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(6000)  # Extra buffer for late-rendering JS
-            text = page.inner_text("body")
-            links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
-            browser.close()
-    except Exception as exc:
-        print(f"  ERROR fetching {url}: {exc}")
+        resp = requests.get(list_url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"  SKIP (fetch failed): Lila Learning — {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Collect unique event detail URLs in page order
+    seen: set[str] = set()
+    detail_urls: list[str] = []
+    for a in soup.find_all("a", href=re.compile(r"/event-details/")):
+        href = a.get("href", "").strip()
+        if href and href not in seen:
+            seen.add(href)
+            detail_urls.append(href)
+
+    print(f"  Lila: {len(detail_urls)} event detail page(s) found")
+
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    events: list[dict] = []
+    for url in detail_urls:
+        event = _parse_lila_detail(url, today_dt, end_dt)
+        if event:
+            events.append(event)
+        time.sleep(0.4)
+
+    print(f"  Lila: {len(events)} in-range in-person event(s)")
+    return events
+
+
+def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict | None:
+    """Fetch and parse a single Lila event detail page."""
+    try:
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"    SKIP (fetch failed): {url} — {exc}")
         return None
 
-    lines = [line for line in text.splitlines() if line.strip()]
-    cleaned = "\n".join(lines)
+    soup = BeautifulSoup(resp.text, "html.parser")
 
-    if links:
-        unique_links = list(dict.fromkeys(links))  # deduplicate, preserve order
-        links_section = "\n\nLINKS FOUND ON PAGE:\n" + "\n".join(unique_links)
-        cleaned = cleaned[:max_chars - len(links_section)] + links_section
-    else:
-        cleaned = cleaned[:max_chars]
+    # Event name from page title
+    title_tag = soup.find("title")
+    name = ""
+    if title_tag:
+        raw = title_tag.get_text(strip=True)
+        name = raw.split("|")[0].strip()
+    if not name:
+        h1 = soup.find("h1")
+        name = h1.get_text(strip=True) if h1 else url.split("/")[-1].replace("-", " ").title()
 
-    return cleaned
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
 
+    # Skip virtual events
+    if re.search(r"\bvirtual\b|\bonline\b|\bwebinar\b", text[:600], re.I):
+        print(f"    SKIP (virtual): {name}")
+        return None
 
-def is_luma_url(url: str) -> bool:
-    return urlparse(url).netloc in ("lu.ma", "www.lu.ma")
-
-
-def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
-    """Fetch events directly from the Luma calendar API and map to our schema."""
-    slug = urlparse(calendar_url).path.strip("/")
-    api_url = f"https://api.lu.ma/calendar/get-items?calendar_api_id={slug}&pagination_limit=50"
+    # Find date/time: "Jun 02, 2026, 4:30 PM – 6:30 PM"
+    dt_match = re.search(
+        r"(\w+ \d{1,2}, \d{4}),\s*(\d{1,2}:\d{2}\s*[AP]M)\s*[–\-]+\s*(\d{1,2}:\d{2}\s*[AP]M)",
+        text,
+    )
+    if not dt_match:
+        print(f"    SKIP (no date/time found): {name}")
+        return None
 
     try:
-        resp = requests.get(api_url, headers={"accept": "application/json"}, timeout=30)
+        event_dt = datetime.strptime(dt_match.group(1), "%b %d, %Y")
+    except ValueError:
+        print(f"    SKIP (bad date): {dt_match.group(1)!r}")
+        return None
+
+    if event_dt < today_dt or event_dt > end_dt:
+        return None
+
+    date_fmt = event_dt.strftime("%Y-%m-%d")
+
+    try:
+        start_time = datetime.strptime(dt_match.group(2).strip(), "%I:%M %p").strftime("%H:%M")
+    except ValueError:
+        start_time = "00:00"
+
+    try:
+        end_time = datetime.strptime(dt_match.group(3).strip(), "%I:%M %p").strftime("%H:%M")
+    except ValueError:
+        end_time = ""
+
+    # Location: prefer full address, fall back to venue name
+    addr_match = re.search(
+        r"\d+\s+\w[^\n]{5,80},\s+\w[^\n]{2,40}(?:NC|North Carolina)[^\n]{0,20}\d{5}", text
+    )
+    if addr_match:
+        location = addr_match.group(0).strip()
+    else:
+        loc_match = re.search(
+            r"(?:Frontier RTP|American Underground|HQ Raleigh|Launch Chapel Hill|"
+            r"[A-Z][^.!\n]{3,60},\s+(?:Raleigh|Durham|Chapel Hill|Cary|RTP)[^.!\n]{0,40})",
+            text,
+        )
+        location = loc_match.group(0).strip() if loc_match else ""
+
+    if not location or "tbd" in location.lower():
+        print(f"    NOTE: No confirmed location for {name} — including with empty location")
+
+    # Description: "About the event" section
+    about_idx = text.find("About the event")
+    if about_idx != -1:
+        desc_raw = text[about_idx + len("About the event"):about_idx + 500].strip()
+        desc_lines = [l for l in desc_raw.splitlines() if l.strip()]
+        description = " ".join(desc_lines[:3])[:350]
+    else:
+        lines = [l for l in text.splitlines() if l.strip()]
+        description = " ".join(lines[4:8])[:350]
+
+    tags = ["startup founders", "entrepreneurship"]
+    if re.search(r"\bpitch\b|\bpitching\b", text, re.I):
+        tags.append("pitch practice")
+    if re.search(r"\binvest\b", text, re.I):
+        tags.append("investor relations")
+    if re.search(r"\bnetwork\b", text, re.I):
+        tags.append("networking")
+    if re.search(r"\bworkshop\b|\bhands.on\b", text, re.I):
+        tags.append("workshop")
+
+    return {
+        "name": name,
+        "date": date_fmt,
+        "start_time": start_time,
+        "end_time": end_time,
+        "location": location,
+        "topic_tags": list(dict.fromkeys(tags)),
+        "description": description,
+        "source_url": url,
+    }
+
+
+# ── Luma ──────────────────────────────────────────────────────────────────────
+
+def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
+    """Get the real Luma calendar API ID from the page, then call the API."""
+    try:
+        resp = requests.get(calendar_url, headers=BROWSER_HEADERS, timeout=30)
         resp.raise_for_status()
-        data = resp.json()
+    except requests.RequestException as exc:
+        print(f"  SKIP (fetch failed): Luma — {exc}")
+        return []
+
+    match = re.search(r'"api_id":"(cal-[^"]+)"', resp.text)
+    if not match:
+        print(f"  SKIP: Could not find Luma calendar API ID in page")
+        return []
+
+    cal_api_id = match.group(1)
+    print(f"  Luma calendar API ID: {cal_api_id}")
+
+    api_url = f"https://api.lu.ma/calendar/get-items?calendar_api_id={cal_api_id}&pagination_limit=50"
+    try:
+        api_resp = requests.get(api_url, headers={"accept": "application/json"}, timeout=30)
+        api_resp.raise_for_status()
+        data = api_resp.json()
     except Exception as exc:
-        print(f"  ERROR fetching Luma API for {calendar_url}: {exc}")
+        print(f"  SKIP: Luma API call failed — {exc}")
         return []
 
     entries = data.get("entries", [])
-    print(f"  Luma API returned {len(entries)} entries for {calendar_url}")
+    print(f"  Luma API: {len(entries)} total entries")
 
     today_dt = datetime.strptime(today, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -103,196 +226,236 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
             continue
 
         start_raw = ev.get("start_at", "") or ""
-        end_raw = ev.get("end_at", "") or ""
-
         try:
-            start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
-            date_str = start_dt.strftime("%Y-%m-%d")
-            start_time_str = start_dt.strftime("%H:%M")
+            start_utc = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+            # Convert to Eastern (EDT = UTC-4)
+            start_local = start_utc.astimezone(timezone(timedelta(hours=-4)))
+            date_str = start_local.strftime("%Y-%m-%d")
+            start_time_str = start_local.strftime("%H:%M")
         except (ValueError, AttributeError):
-            date_str = ""
-            start_time_str = "00:00"
+            continue
 
-        if date_str:
-            event_date = datetime.strptime(date_str, "%Y-%m-%d")
-            if event_date < today_dt or event_date > end_dt:
-                continue
+        event_date = datetime.strptime(date_str, "%Y-%m-%d")
+        if event_date < today_dt or event_date > end_dt:
+            continue
 
-        try:
-            end_dt_obj = datetime.fromisoformat(end_raw.replace("Z", "+00:00"))
-            end_time_str = end_dt_obj.strftime("%H:%M")
-        except (ValueError, AttributeError):
-            end_time_str = ""
+        # End time from duration_interval ISO 8601
+        end_time_str = ""
+        duration = ev.get("duration_interval", "")
+        if duration:
+            dur_match = re.match(r"P.*?T(?:(\d+)H)?(?:(\d+)M)?", duration)
+            if dur_match:
+                hours = int(dur_match.group(1) or 0)
+                minutes = int(dur_match.group(2) or 0)
+                end_local = start_local + timedelta(hours=hours, minutes=minutes)
+                end_time_str = end_local.strftime("%H:%M")
 
         geo = ev.get("geo_address_json") or ev.get("geo_address_info") or {}
-        location = (
-            geo.get("full_address")
-            or geo.get("address")
-            or geo.get("city")
-            or ""
-        )
+        location = geo.get("address") or geo.get("full_address") or geo.get("city") or ""
 
-        name = ev.get("name") or ev.get("title") or ""
-        description = ev.get("description") or ev.get("description_md") or ""
-        if isinstance(description, str) and len(description) > 500:
-            description = description[:500].rsplit(" ", 1)[0] + "…"
+        name = (ev.get("name") or ev.get("title") or "").strip()
+        description = (ev.get("description") or "").strip()
+        if len(description) > 400:
+            description = description[:400].rsplit(" ", 1)[0] + "…"
 
-        event_api_id = ev.get("api_id") or ev.get("url") or ""
-        if event_api_id and not event_api_id.startswith("http"):
-            source_url = f"https://lu.ma/{event_api_id}"
-        elif event_api_id:
-            source_url = event_api_id
-        else:
-            source_url = calendar_url
+        source_url = ev.get("url") or calendar_url
 
         events.append({
-            "name": name.strip(),
+            "name": name,
             "date": date_str,
             "start_time": start_time_str,
             "end_time": end_time_str,
-            "location": location.strip() if location else "",
+            "location": location,
             "topic_tags": ["networking", "startup founders"],
-            "description": description.strip(),
+            "description": description,
             "source_url": source_url,
         })
 
-    print(f"  Mapped {len(events)} in-range event(s) from Luma API")
+    print(f"  Luma: {len(events)} in-range event(s)")
     return events
 
 
-def extract_events_from_text(
-    client: anthropic.Anthropic,
-    page_text: str,
-    source_url: str,
-    today: str,
-    end_date: str,
+# ── Meetup ────────────────────────────────────────────────────────────────────
+
+def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
+    """Parse Meetup events from __NEXT_DATA__ Apollo state (no Playwright needed)."""
+    try:
+        resp = requests.get(calendar_url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"  SKIP (fetch failed): Meetup — {exc}")
+        return []
+
+    match = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        resp.text,
+        re.DOTALL,
+    )
+    if not match:
+        print(f"  SKIP: No __NEXT_DATA__ in Meetup page")
+        return []
+
+    try:
+        data = json.loads(match.group(1))
+        apollo = data["props"]["pageProps"]["__APOLLO_STATE__"]
+    except (json.JSONDecodeError, KeyError) as exc:
+        print(f"  SKIP: Could not parse Meetup Apollo state — {exc}")
+        return []
+
+    # Build venue lookup
+    venues: dict[str, dict] = {}
+    for key, val in apollo.items():
+        if key.startswith("Venue:") and isinstance(val, dict):
+            venues[key.split(":", 1)[1]] = val
+
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    events: list[dict] = []
+    for key, ev in apollo.items():
+        if not key.startswith("Event:") or not isinstance(ev, dict):
+            continue
+        if ev.get("isOnline") or ev.get("eventType") != "PHYSICAL":
+            continue
+        if ev.get("status") != "ACTIVE":
+            continue
+        if ev.get("feeSettings") is not None:
+            continue  # paid event
+
+        date_raw = ev.get("dateTime", "")
+        if not date_raw:
+            continue
+        try:
+            event_dt = datetime.fromisoformat(date_raw)
+            date_str = event_dt.strftime("%Y-%m-%d")
+            start_time_str = event_dt.strftime("%H:%M")
+        except ValueError:
+            continue
+
+        event_date = datetime.strptime(date_str, "%Y-%m-%d")
+        if event_date < today_dt or event_date > end_dt:
+            continue
+
+        end_time_str = ""
+        end_raw = ev.get("endTime", "")
+        if end_raw:
+            try:
+                end_time_str = datetime.fromisoformat(end_raw).strftime("%H:%M")
+            except ValueError:
+                pass
+
+        venue_id = ""
+        venue_ref = ev.get("venue", {})
+        if isinstance(venue_ref, dict):
+            ref = venue_ref.get("__ref", "")
+            venue_id = ref.split(":", 1)[1] if ":" in ref else ""
+        venue = venues.get(venue_id, {})
+        loc_parts = [venue.get("name", ""), venue.get("address", ""), venue.get("city", ""), venue.get("state", "")]
+        location = ", ".join(p for p in loc_parts if p)
+
+        description = ev.get("description", "")
+        if description:
+            description = re.sub(r"[\\*#\[\]]+", "", description).strip()
+            sentences = re.split(r"(?<=[.!?])\s+", description)
+            description = " ".join(sentences[:3])[:400]
+
+        tags = ["networking", "startup founders"]
+        if re.search(r"\bai\b|artificial intelligence", description, re.I):
+            tags.append("AI")
+        if re.search(r"\bfound", description, re.I):
+            tags.append("entrepreneurship")
+
+        events.append({
+            "name": ev.get("title", "").strip(),
+            "date": date_str,
+            "start_time": start_time_str,
+            "end_time": end_time_str,
+            "location": location,
+            "topic_tags": list(dict.fromkeys(tags)),
+            "description": description,
+            "source_url": ev.get("eventUrl", calendar_url),
+        })
+
+    print(f"  Meetup: {len(events)} in-range in-person free event(s)")
+    return events
+
+
+# ── 1 Million Cups (Playwright + Claude) ──────────────────────────────────────
+
+def fetch_1mc_events(
+    calendar_url: str, client: anthropic.Anthropic, today: str, end_date: str
 ) -> list[dict]:
-    """Send page text to Claude and extract structured event data."""
+    """Render 1MC page with Playwright, then extract events via Claude."""
+    print(f"  Launching Playwright for 1MC…")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
+            page.goto(calendar_url, timeout=30000)
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(5000)
+            text = page.inner_text("body")
+            links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            browser.close()
+    except Exception as exc:
+        print(f"  SKIP (Playwright failed): 1MC — {exc}")
+        return []
+
+    lines = [l for l in text.splitlines() if l.strip()]
+    page_text = "\n".join(lines)[:12000]
+
+    if links:
+        event_links = [l for l in dict.fromkeys(links) if "1millioncups.com" in l and l != calendar_url]
+        if event_links:
+            page_text += "\n\nLINKS FOUND ON PAGE:\n" + "\n".join(event_links[:50])
+
+    if not page_text.strip() or len(page_text) < 100:
+        print(f"  SKIP: 1MC page returned no content")
+        return []
+
+    print(f"  1MC page: {len(page_text)} chars — sending to Claude…")
+
     prompt = (
-        f"Extract all upcoming in-person events from this page content. "
+        f"Extract all upcoming in-person events from this 1 Million Cups page content. "
+        f"1 Million Cups is a free weekly program for entrepreneurs. "
         f"Today is {today}. Only include events between {today} and {end_date}. "
         f"Return ONLY a valid JSON array starting with [ and ending with ]. "
         f"Each object must have: name (string), date (YYYY-MM-DD), "
         f"start_time (HH:MM or 00:00 if unknown), end_time (HH:MM or empty string), "
-        f"location (string), "
+        f"location (venue name and full address), "
         f"topic_tags (array using only: {', '.join(APPROVED_TAGS)}), "
-        f"description (1-3 sentences), "
-        f"source_url (string). IMPORTANT: source_url must be the direct permalink URL for that "
-        f"specific individual event — not the calendar or listing page URL ({source_url!r}). "
-        f"Look for links in the page content that point to individual event pages "
-        f"(e.g. paths like /event/xyz, /e/slug, /events/123, or full URLs on the same domain). "
-        f"If you find such a link for an event, use it as source_url. "
-        f"Only fall back to {source_url!r} if no individual event link exists. "
-        f"Return [] if no upcoming events found.\n\n"
+        f"description (1-3 sentences about the event), "
+        f"source_url (direct URL to the specific event — look in LINKS FOUND ON PAGE for individual "
+        f"event URLs, NOT the calendar page {calendar_url!r}). "
+        f"Return [] if no upcoming in-person events found.\n\n"
         f"Page content:\n{page_text}"
-    )
-
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    text = ""
-    for block in response.content:
-        if hasattr(block, "type") and block.type == "text":
-            text += block.text
-
-    events = parse_events(text)
-    print(f"  Extracted {len(events)} event(s) from {source_url}")
-    return events
-
-
-def enrich_event(event: dict, client: anthropic.Anthropic, today: str, calendar_url: str = "") -> dict:
-    """Fetch the event's source_url and fill in missing date, start_time, end_time, location, description."""
-    needs_start = str(event.get("start_time", "")).strip() in ("", "00:00")
-    needs_end = str(event.get("end_time", "")).strip() == ""
-    needs_date = str(event.get("date", "")).strip() == ""
-    if not (needs_start or needs_end or needs_date):
-        return event
-
-    source_url = str(event.get("source_url", "")).strip()
-    if not source_url:
-        return event
-
-    def _norm(u: str) -> str:
-        return u.rstrip("/").lower()
-
-    if _norm(source_url) == _norm(calendar_url) or _norm(source_url) in [_norm(s) for s in SOURCES]:
-        event_name = str(event.get("name", "unknown")).strip()
-        print(f"  SKIP ENRICH (source_url is a calendar page): {event_name!r}")
-        return event
-
-    event_name = str(event.get("name", "unknown")).strip()
-    print(f"  Enriching: {event_name} from {source_url}")
-
-    page_content = fetch_page_text(source_url, max_chars=8000)
-    if not page_content:
-        print(f"    ENRICH fetch failed for {source_url}")
-        return event
-
-    print(f"  Got {len(page_content)} chars from detail page")
-
-    prompt = (
-        "Extract event details from this page content and return ONLY a valid JSON object "
-        "with these fields: name (string or empty), date (YYYY-MM-DD or empty string if not found), "
-        "start_time (HH:MM 24-hour format or empty string if not found), "
-        "end_time (HH:MM 24-hour format or empty string if not found), "
-        "location (venue name and address or empty string), "
-        "description (1-3 sentence summary or empty string). "
-        "Return only the JSON object, nothing else.\n\n"
-        f"Page content:\n{page_content}"
     )
 
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=512,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:
-        print(f"    ENRICH Claude call failed: {exc}")
-        return event
+        print(f"  ERROR: Claude call failed for 1MC — {exc}")
+        return []
 
     raw = ""
     for block in response.content:
         if hasattr(block, "type") and block.type == "text":
             raw += block.text
 
-    raw = raw.strip()
-    print(f"  Enrichment result: {raw[:500]}")
+    events = parse_events(raw)
+    print(f"  1MC: {len(events)} event(s) extracted by Claude")
+    return events
 
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return event
 
-    try:
-        details = json.loads(raw[start:end + 1])
-    except (json.JSONDecodeError, ValueError):
-        return event
-
-    if not isinstance(details, dict):
-        return event
-
-    enriched = dict(event)
-    if needs_date and details.get("date", "").strip():
-        enriched["date"] = details["date"].strip()
-    if needs_start and details.get("start_time", "").strip():
-        enriched["start_time"] = details["start_time"].strip()
-    if needs_end and details.get("end_time", "").strip():
-        enriched["end_time"] = details["end_time"].strip()
-    for field in ("location", "description"):
-        if not str(enriched.get(field, "")).strip() and details.get(field, "").strip():
-            enriched[field] = details[field].strip()
-
-    return enriched
-
+# ── Shared utilities ───────────────────────────────────────────────────────────
 
 def parse_events(text: str) -> list[dict]:
-    """Extract the JSON events array from a text response."""
+    """Extract JSON array from Claude response text."""
     text = text.strip()
-
     try:
         data = json.loads(text)
         if isinstance(data, list):
@@ -325,7 +488,7 @@ def parse_events(text: str) -> list[dict]:
 
 
 def get_existing_events() -> set[tuple[str, str]]:
-    """Return a set of (lowercased_name, date) tuples for all events in Airtable."""
+    """Return (lowercased_name, date) tuples for all Airtable events."""
     headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
     params = {"fields[]": ["Name", "Date"]}
     existing: set[tuple[str, str]] = set()
@@ -334,14 +497,12 @@ def get_existing_events() -> set[tuple[str, str]]:
         resp = requests.get(AIRTABLE_URL, headers=headers, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-
         for record in data.get("records", []):
             fields = record.get("fields", {})
             name = fields.get("Name", "").lower().strip()
             date = fields.get("Date", "").strip()
             if name and date:
                 existing.add((name, date))
-
         offset = data.get("offset")
         if not offset:
             break
@@ -351,12 +512,11 @@ def get_existing_events() -> set[tuple[str, str]]:
 
 
 def create_event_record(event: dict) -> dict:
-    """Create a new Airtable record for the given event."""
+    """Write a single event to Airtable."""
     headers = {
         "Authorization": f"Bearer {AIRTABLE_API_KEY}",
         "Content-Type": "application/json",
     }
-
     fields: dict = {
         "Name": str(event.get("name", "")).strip(),
         "Date": str(event.get("date", "")).strip(),
@@ -365,22 +525,18 @@ def create_event_record(event: dict) -> dict:
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
     }
-
     end_time = str(event.get("end_time", "")).strip()
     if end_time:
         fields["End Time"] = end_time
-
     tags = event.get("topic_tags")
     if isinstance(tags, list) and tags:
         fields["Topic Tags"] = [str(t).strip() for t in tags if str(t).strip()]
-
     resp = requests.post(AIRTABLE_URL, headers=headers, json={"fields": fields}, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
 def is_valid_event(event: dict) -> tuple[bool, str]:
-    """Return (True, '') if event dict is usable, else (False, reason)."""
     if not isinstance(event, dict):
         return False, "not a dict"
     name = str(event.get("name", "")).strip()
@@ -396,6 +552,8 @@ def is_valid_event(event: dict) -> tuple[bool, str]:
     return True, ""
 
 
+# ── Main ───────────────────────────────────────────────────────────────────────
+
 def main():
     if not ANTHROPIC_API_KEY:
         sys.exit("ERROR: ANTHROPIC_API_KEY is not set.")
@@ -406,39 +564,29 @@ def main():
     end_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    print(f"Sources configured: {SOURCES}")
-    print(f"Processing {len(SOURCES)} source(s) ({today} → {end_date})…")
+    print(f"Triangle Startup Events — {today} → {end_date}\n")
     all_events: list[dict] = []
 
-    for url in SOURCES:
-        print(f"Fetching: {url}")
-        if is_luma_url(url):
-            events = fetch_luma_events(url, today, end_date)
-        else:
-            page_text = fetch_page_text(url)
-            if not page_text:
-                print(f"  SKIP (fetch failed or empty): {url}")
-                continue
-            print(f"  Got {len(page_text)} chars — sending to Claude…")
-            events = extract_events_from_text(client, page_text, url, today, end_date)
-        for event in events:
-            event["_calendar_url"] = url  # track origin for enrichment guard
-        all_events.extend(events)
+    print("[1/4] Lila Learning (requests + BeautifulSoup)…")
+    all_events.extend(fetch_lila_events(today, end_date))
 
-    print(f"\nTotal events found: {len(all_events)}")
+    print("\n[2/4] Luma (API)…")
+    all_events.extend(fetch_luma_events("https://lu.ma/raleighdurhamstartupweek", today, end_date))
+
+    print("\n[3/4] Meetup (requests + Apollo state)…")
+    all_events.extend(fetch_meetup_events("https://www.meetup.com/triangle-startup-collective/", today, end_date))
+
+    print("\n[4/4] 1 Million Cups (Playwright + Claude)…")
+    all_events.extend(fetch_1mc_events(
+        "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
+        client, today, end_date,
+    ))
+
+    print(f"\nTotal events found across all sources: {len(all_events)}")
 
     if not all_events:
         print("Nothing to add.")
         return
-
-    print("Enriching events with missing time/location details…")
-    enriched_events: list[dict] = []
-    for event in all_events:
-        calendar_url = event.pop("_calendar_url", "")
-        enriched = enrich_event(event, client, today, calendar_url=calendar_url)
-        enriched_events.append(enriched)
-        time.sleep(0.5)
-    all_events = enriched_events
 
     print("Fetching existing Airtable events…")
     existing = get_existing_events()
@@ -466,7 +614,7 @@ def main():
             print(f"  ADDED: {event['name']} on {event['date']}")
             existing.add(key)
             added += 1
-            time.sleep(0.25)  # Stay within Airtable's 5 req/s limit
+            time.sleep(0.25)  # Airtable 5 req/s limit
         except requests.HTTPError as exc:
             body = exc.response.text if exc.response is not None else ""
             print(f"  ERROR adding {event.get('name')!r}: {exc}  —  {body[:300]}")
