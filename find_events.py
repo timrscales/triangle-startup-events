@@ -187,6 +187,30 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
 
 # ── Luma ──────────────────────────────────────────────────────────────────────
 
+def _fetch_luma_event_description(event_url: str) -> str:
+    """Fetch a native Luma event page and extract its About section."""
+    try:
+        resp = requests.get(event_url, headers=BROWSER_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return ""
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+
+    about_idx = text.find("About Event")
+    if about_idx == -1:
+        about_idx = text.find("About the Event")
+    if about_idx != -1:
+        snippet = text[about_idx + len("About Event"):about_idx + 600].strip()
+        lines = [l for l in snippet.splitlines() if l.strip() and not l.strip().startswith("​")]
+        sentences = re.split(r"(?<=[.!?])\s+", " ".join(lines[:8]))
+        return " ".join(sentences[:3])[:400]
+    return ""
+
+
 def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
     """Get the real Luma calendar API ID from the page, then call the API."""
     try:
@@ -254,11 +278,20 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
         location = geo.get("address") or geo.get("full_address") or geo.get("city") or ""
 
         name = (ev.get("name") or ev.get("title") or "").strip()
+
+        raw_url = ev.get("url") or ""
+        if raw_url.startswith("http"):
+            source_url = raw_url
+        elif raw_url:
+            source_url = f"https://lu.ma/{raw_url}"
+        else:
+            source_url = calendar_url
+
         description = (ev.get("description") or "").strip()
+        if not description and source_url.startswith("https://lu.ma/"):
+            description = _fetch_luma_event_description(source_url)
         if len(description) > 400:
             description = description[:400].rsplit(" ", 1)[0] + "…"
-
-        source_url = ev.get("url") or calendar_url
 
         events.append({
             "name": name,
