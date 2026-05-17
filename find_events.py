@@ -388,9 +388,12 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
 
         description = ev.get("description", "")
         if description:
-            description = re.sub(r"[\\*#\[\]]+", "", description).strip()
-            sentences = re.split(r"(?<=[.!?])\s+", description)
-            description = " ".join(sentences[:3])[:400]
+            description = re.sub(r"\*\*(.+?)\*\*", r"\1", description)
+            description = re.sub(r"\*(.+?)\*", r"\1", description)
+            description = re.sub(r"[\\#\[\]]+", "", description)
+            description = re.sub(r"\d+\.", "", description)
+            description = re.sub(r"\n+", " ", description).strip()
+            description = description[:800]
 
         tags = ["networking", "startup founders"]
         if re.search(r"\bai\b|artificial intelligence", description, re.I):
@@ -585,6 +588,40 @@ def is_valid_event(event: dict) -> tuple[bool, str]:
     return True, ""
 
 
+# ── Description summarization ─────────────────────────────────────────────────
+
+def _summarize_one(name: str, description: str, client: anthropic.Anthropic) -> str:
+    """Ask Claude for a single one-sentence event summary."""
+    prompt = (
+        f"Write exactly ONE sentence (20–35 words) telling a potential attendee what they will "
+        f"specifically do or learn at this event. Be concrete, not generic.\n\n"
+        f"Event: {name}\nDescription: {description[:700]}\n\nOne sentence:"
+    )
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=80,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+    except Exception as exc:
+        print(f"    WARNING: Summary failed for {name!r} — {exc}")
+        return description
+
+
+def summarize_descriptions(events: list[dict], client: anthropic.Anthropic) -> list[dict]:
+    """Replace raw descriptions with Claude-generated one-sentence summaries."""
+    count = 0
+    for ev in events:
+        if ev.get("description", "").strip():
+            ev["description"] = _summarize_one(ev["name"], ev["description"], client)
+            count += 1
+            time.sleep(0.1)
+    if count:
+        print(f"  Summarized {count} description(s)")
+    return events
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -620,6 +657,9 @@ def main():
     if not all_events:
         print("Nothing to add.")
         return
+
+    print("\nGenerating one-sentence descriptions via Claude…")
+    all_events = summarize_descriptions(all_events, client)
 
     print("Fetching existing Airtable events…")
     existing = get_existing_events()
