@@ -1,0 +1,163 @@
+/* RDSW / RDSCo Design System — colors + type
+   ------------------------------------------------------
+   FONT NOTE: The brand uses a heavy geometric sans (Aktiv Grotesk-style)
+   on Squarespace. Closest free substitute → Inter (weights 400/500/700/800/900).
+   We load Inter from Google Fonts. If you have the licensed brand font,
+   drop it into /fonts and swap --font-sans below. */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ============== COLOR — PRIMARY ============== */
+  --rdsw-blue:           #009DE0;   /* Primary "RDSW Blue" — the iconic cyan (live site value; PDF lists #2BC0FF) */
+  --rdsw-blue-tinted:    #87DBFF;   /* Secondary tint (highlights, hover) */
+  --rdsw-blue-dark:      #003D69;   /* Secondary dark (logo glyphs, deep ground) */
+  --rdsw-blue-bg:        #002C40;   /* Deep background blue */
+
+  /* ============== COLOR — ACCENTS (paired warm/cool) ============== */
+  --accent-amber:        #FFB648;   /* Sunny secondary */
+  --accent-amber-soft:   #FFD699;
+  --accent-amber-deep:   #E68A00;
+
+  --accent-coral:        #FC7777;   /* Heat / urgency */
+  --accent-coral-soft:   #FDB4B4;
+  --accent-coral-deep:   #E10505;
+
+  --accent-violet:       #B577FC;   /* Creative */
+  --accent-violet-soft:  #D6B4FD;
+  --accent-violet-deep:  #6B05E1;
+
+  --accent-mint:         #1BE0B0;   /* CTA / positive — used on the live site for buttons */
+  --accent-mint-soft:    #A4F4E1;
+  --accent-mint-deep:    #009F97;
+
+  /* ============== COLOR — NEUTRALS ============== */
+  --ink:                 #0A0A0A;   /* True black — used for "Startup" / "Co." in lockup */
+  --ink-2:               #1A1F26;
+  --ink-3:               #3D4754;
+  --muted:               #6B7785;
+  --line:                #E4E8EE;
+  --line-2:              #F1F3F6;
+  --paper:               #FFFFFF;
+  --paper-2:             #F8FAFC;
+
+  /* ============== SEMANTIC — surfaces ============== */
+  --bg:                  var(--paper);
+  --bg-alt:              var(--paper-2);
+  --bg-invert:           var(--rdsw-blue-bg);
+  --bg-brand:            var(--rdsw-blue);
+
+  /* ============== SEMANTIC — text ============== */
+  --fg:                  var(--ink);
+  --fg-muted:            var(--muted);
+  --fg-on-brand:         var(--paper);
+  --fg-on-dark:          var(--paper);
+  --fg-link:             var(--rdsw-blue-deep, var(--rdsw-blue-dark));
+
+  /* ============== SEMANTIC — interactive ============== */
+  --cta-bg:              var(--accent-mint);
+  --cta-bg-hover:        var(--accent-mint-deep);
+  --cta-fg:              var(--rdsw-blue-dark);
+
+  --secondary-bg:        var(--rdsw-blue-dark);
+  --secondary-fg:        var(--paper);
+
+  /* ============== TYPE — families ============== */
+  --font-sans:   'Inter', 'Aktiv Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:   'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ============== TYPE — weights (heavy is the brand voice) ============== */
+  --w-regular: 400;
+  --w-medium:  500;
+  --w-semi:    600;
+  --w-bold:    700;
+  --w-black:   800;        /* for body emphasis & buttons */
+  --w-mega:    900;        /* for display / hero stack — matches logo weight */
+
+  /* ============== TYPE — fluid scale (clamp-based) ============== */
+  --t-display:  clamp(56px, 8vw, 120px);   /* hero stacked headlines like the logo */
+  --t-h1:       clamp(40px, 5vw, 72px);
+  --t-h2:       clamp(32px, 3.6vw, 48px);
+  --t-h3:       clamp(24px, 2.4vw, 32px);
+  --t-h4:       20px;
+  --t-eyebrow:  13px;       /* TRACKED ALL-CAPS LABELS */
+  --t-body-lg:  20px;
+  --t-body:     17px;
+  --t-body-sm:  15px;
+  --t-caption:  13px;
+  --t-mono:     14px;
+
+  /* ============== SPACING (4-pt) ============== */
+  --s-1:  4px;  --s-2:  8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 20px;  --s-6: 24px;  --s-7: 32px; --s-8: 40px;
+  --s-9: 56px;  --s-10: 72px; --s-11: 96px; --s-12: 128px;
+
+  /* ============== RADII (mostly square — brand is geometric) ============== */
+  --r-0: 0;       /* hard edges — brand default */
+  --r-1: 4px;     /* small chips, inputs */
+  --r-2: 8px;     /* cards */
+  --r-3: 12px;
+  --r-pill: 999px;
+
+  /* ============== SHADOWS (subtle — brand is flat) ============== */
+  --shadow-1: 0 1px 0 rgba(0, 61, 105, 0.08);
+  --shadow-2: 0 4px 12px rgba(0, 61, 105, 0.10);
+  --shadow-3: 0 12px 32px rgba(0, 61, 105, 0.16);
+
+  /* ============== MOTION ============== */
+  --ease-out: cubic-bezier(.2,.8,.2,1);
+  --ease-snap: cubic-bezier(.6,-0.05,.3,1.4);  /* slight overshoot for "celebrate" moments */
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-slow: 320ms;
+}
+
+/* ============== SEMANTIC ELEMENT STYLES ============== */
+html, body {
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: inherit;
+  font-weight: var(--w-mega);
+  letter-spacing: -0.02em;
+  line-height: 0.95;
+  text-wrap: balance;
+  margin: 0;
+}
+h1 { font-size: var(--t-h1); }
+h2 { font-size: var(--t-h2); letter-spacing: -0.018em; }
+h3 { font-size: var(--t-h3); font-weight: var(--w-black); letter-spacing: -0.012em; line-height: 1.1; }
+h4 { font-size: var(--t-h4); font-weight: var(--w-black); line-height: 1.2; letter-spacing: -0.005em; }
+
+.display {
+  font-size: var(--t-display);
+  font-weight: var(--w-mega);
+  line-height: 0.92;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.eyebrow, .label {
+  font-size: var(--t-eyebrow);
+  font-weight: var(--w-black);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+p { margin: 0 0 var(--s-4); text-wrap: pretty; }
+p.lead { font-size: var(--t-body-lg); line-height: 1.45; }
+
+a { color: var(--rdsw-blue-dark); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; }
+a:hover { color: var(--rdsw-blue); }
+
+code, kbd, pre { font-family: var(--font-mono); font-size: var(--t-mono); }
+
+::selection { background: var(--rdsw-blue); color: var(--rdsw-blue-dark); }

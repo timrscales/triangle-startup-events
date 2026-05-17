@@ -1,29 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
 
 function parseHash() {
-  const hash = window.location.hash.slice(1)
-  const params = new URLSearchParams(hash)
+  const params = new URLSearchParams(window.location.hash.slice(1))
   return {
-    view: params.get('view') || 'list',
-    date: params.get('date') || null,
-    cities: params.get('cities') ? params.get('cities').split(',').filter(Boolean) : [],
-    types: params.get('types') ? params.get('types').split(',').filter(Boolean) : [],
-    tags: params.get('tags') ? params.get('tags').split(',').filter(Boolean) : [],
-    search: params.get('search') || '',
-    event: params.get('event') || null,
+    view:   params.get('view')   || 'List',
+    date:   params.get('date')   || null,
+    topics: params.get('topics') ? params.get('topics').split(',').filter(Boolean) : [],
+    q:      params.get('q')      || '',
+    event:  params.get('event')  || null,
   }
 }
 
-function buildHash(state) {
-  const params = new URLSearchParams()
-  if (state.view && state.view !== 'list') params.set('view', state.view)
-  if (state.date) params.set('date', state.date)
-  if (state.cities && state.cities.length) params.set('cities', state.cities.join(','))
-  if (state.types && state.types.length) params.set('types', state.types.join(','))
-  if (state.tags && state.tags.length) params.set('tags', state.tags.join(','))
-  if (state.search) params.set('search', state.search)
-  if (state.event) params.set('event', state.event)
-  const str = params.toString()
+function buildHash(s) {
+  const p = new URLSearchParams()
+  if (s.view && s.view !== 'List') p.set('view', s.view)
+  if (s.date)                       p.set('date', s.date)
+  if (s.topics && s.topics.length)  p.set('topics', s.topics.join(','))
+  if (s.q)                          p.set('q', s.q)
+  if (s.event)                      p.set('event', s.event)
+  const str = p.toString()
   return str ? `#${str}` : '#'
 }
 
