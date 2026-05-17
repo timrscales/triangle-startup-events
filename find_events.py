@@ -77,10 +77,12 @@ def extract_events_from_text(
         f"location (string), "
         f"topic_tags (array using only: {', '.join(APPROVED_TAGS)}), "
         f"description (1-3 sentences), "
-        f"source_url (direct RSVP link if found, otherwise {source_url!r}). "
-        f"For each event, the source_url must be the direct URL to that specific event's detail page, "
-        f"not the calendar page URL. If you can find individual event links on the page, use those. "
-        f"If not, use the source URL as fallback. "
+        f"source_url (string). IMPORTANT: source_url must be the direct permalink URL for that "
+        f"specific individual event — not the calendar or listing page URL ({source_url!r}). "
+        f"Look for links in the page content that point to individual event pages "
+        f"(e.g. paths like /event/xyz, /e/slug, /events/123, or full URLs on the same domain). "
+        f"If you find such a link for an event, use it as source_url. "
+        f"Only fall back to {source_url!r} if no individual event link exists. "
         f"Return [] if no upcoming events found.\n\n"
         f"Page content:\n{page_text}"
     )
@@ -101,7 +103,7 @@ def extract_events_from_text(
     return events
 
 
-def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
+def enrich_event(event: dict, client: anthropic.Anthropic, today: str, calendar_url: str = "") -> dict:
     """Fetch the event's source_url and fill in missing date, start_time, end_time, location, description."""
     needs_start = str(event.get("start_time", "")).strip() in ("", "00:00")
     needs_end = str(event.get("end_time", "")).strip() == ""
@@ -111,6 +113,11 @@ def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
 
     source_url = str(event.get("source_url", "")).strip()
     if not source_url:
+        return event
+
+    if source_url == calendar_url:
+        event_name = str(event.get("name", "unknown")).strip()
+        print(f"  SKIP ENRICH (source_url is the calendar page): {event_name!r}")
         return event
 
     event_name = str(event.get("name", "unknown")).strip()
@@ -306,6 +313,8 @@ def main():
             continue
         print(f"  Got {len(page_text)} chars — sending to Claude…")
         events = extract_events_from_text(client, page_text, url, today, end_date)
+        for event in events:
+            event["_calendar_url"] = url  # track origin for enrichment guard
         all_events.extend(events)
 
     print(f"\nTotal events found: {len(all_events)}")
@@ -317,7 +326,8 @@ def main():
     print("Enriching events with missing time/location details…")
     enriched_events: list[dict] = []
     for event in all_events:
-        enriched = enrich_event(event, client, today)
+        calendar_url = event.pop("_calendar_url", "")
+        enriched = enrich_event(event, client, today, calendar_url=calendar_url)
         enriched_events.append(enriched)
         time.sleep(0.5)
     all_events = enriched_events
