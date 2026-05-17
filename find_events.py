@@ -70,7 +70,12 @@ List every free in-person startup or entrepreneur event you find with as much de
     format_prompt = f"""Convert the following event information into a JSON array. Return ONLY the JSON array starting with [ and ending with ]. No other text before or after.
 
 Each event object must have these exact keys:
-  "name", "date" (YYYY-MM-DD), "start_time" (HH:MM or "00:00"), "end_time" (HH:MM or ""), "location", "topic_tags" (array of strings), "description", "source_url"
+  "name", "date" (YYYY-MM-DD), "start_time" (HH:MM or "00:00"), "end_time" (HH:MM or ""), "location", "description", "source_url"
+  "topic_tags" — array of strings, but you MUST only use tags from this approved list:
+  ["networking", "fundraising", "pitch practice", "startup founders", "entrepreneurship",
+  "technology", "AI", "life science", "small business", "happy hour", "panel discussion",
+  "workshop", "mentorship", "investor relations", "marketing", "legal", "finance", "hiring"]
+  Choose the 1-3 most relevant tags from this list only. Never invent new tags.
 
 Only include free in-person events for startup founders or entrepreneurs in the Triangle NC area between {today} and {end_date}.
 If a field is unknown use your best estimate. Never omit an event just because some fields are missing.
