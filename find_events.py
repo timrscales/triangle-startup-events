@@ -181,34 +181,49 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
         "location": location,
         "topic_tags": list(dict.fromkeys(tags)),
         "description": description,
+        "organizer": "Lila Learning",
         "source_url": url,
     }
 
 
 # ── Luma ──────────────────────────────────────────────────────────────────────
 
-def _fetch_luma_event_description(event_url: str) -> str:
-    """Fetch a native Luma event page and extract its About section."""
+def _fetch_luma_event_details(event_url: str) -> tuple[str, str]:
+    """Fetch a native Luma event page; return (description, organizer)."""
     try:
         resp = requests.get(event_url, headers=BROWSER_HEADERS, timeout=20)
         resp.raise_for_status()
     except requests.RequestException:
-        return ""
+        return "", ""
 
     soup = BeautifulSoup(resp.text, "html.parser")
     for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
         tag.decompose()
     text = soup.get_text(separator="\n", strip=True)
+    lines = [l for l in text.splitlines() if l.strip()]
 
+    # Organizer: "Presented by\n<Name>" takes priority, fall back to "Hosted By\n<Name>"
+    organizer = ""
+    for label in ("Presented by", "Hosted By"):
+        for i, line in enumerate(lines):
+            if line.strip() == label and i + 1 < len(lines):
+                organizer = lines[i + 1].strip()
+                break
+        if organizer:
+            break
+
+    # Description: text after "About Event"
+    description = ""
     about_idx = text.find("About Event")
     if about_idx == -1:
         about_idx = text.find("About the Event")
     if about_idx != -1:
         snippet = text[about_idx + len("About Event"):about_idx + 600].strip()
-        lines = [l for l in snippet.splitlines() if l.strip() and not l.strip().startswith("​")]
-        sentences = re.split(r"(?<=[.!?])\s+", " ".join(lines[:8]))
-        return " ".join(sentences[:3])[:400]
-    return ""
+        desc_lines = [l for l in snippet.splitlines() if l.strip() and not l.strip().startswith("​")]
+        sentences = re.split(r"(?<=[.!?])\s+", " ".join(desc_lines[:8]))
+        description = " ".join(sentences[:3])[:400]
+
+    return description, organizer
 
 
 def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
@@ -227,6 +242,9 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
 
     cal_api_id = match.group(1)
     print(f"  Luma calendar API ID: {cal_api_id}")
+
+    cal_name_match = re.search(r'"name":"([^"]{3,80})"', resp.text)
+    calendar_name = cal_name_match.group(1) if cal_name_match else ""
 
     api_url = f"https://api.lu.ma/calendar/get-items?calendar_api_id={cal_api_id}&pagination_limit=50"
     try:
@@ -288,8 +306,13 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
             source_url = calendar_url
 
         description = (ev.get("description") or "").strip()
-        if not description and source_url.startswith("https://lu.ma/"):
-            description = _fetch_luma_event_description(source_url)
+        organizer = ""
+        if source_url.startswith("https://lu.ma/"):
+            fetched_desc, organizer = _fetch_luma_event_details(source_url)
+            if not description:
+                description = fetched_desc
+        if not organizer:
+            organizer = calendar_name
         if len(description) > 400:
             description = description[:400].rsplit(" ", 1)[0] + "…"
 
@@ -301,6 +324,7 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
             "location": location,
             "topic_tags": ["networking", "startup founders"],
             "description": description,
+            "organizer": organizer,
             "source_url": source_url,
         })
 
@@ -335,11 +359,14 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
         print(f"  SKIP: Could not parse Meetup Apollo state — {exc}")
         return []
 
-    # Build venue lookup
+    # Build venue and group lookups
     venues: dict[str, dict] = {}
+    groups: dict[str, str] = {}
     for key, val in apollo.items():
         if key.startswith("Venue:") and isinstance(val, dict):
             venues[key.split(":", 1)[1]] = val
+        if key.startswith("Group:") and isinstance(val, dict):
+            groups[key] = val.get("name", "")
 
     today_dt = datetime.strptime(today, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -395,6 +422,9 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
             description = re.sub(r"\n+", " ", description).strip()
             description = description[:800]
 
+        group_ref = ev.get("group", {}).get("__ref", "") if isinstance(ev.get("group"), dict) else ""
+        organizer = groups.get(group_ref, "")
+
         tags = ["networking", "startup founders"]
         if re.search(r"\bai\b|artificial intelligence", description, re.I):
             tags.append("AI")
@@ -409,6 +439,7 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
             "location": location,
             "topic_tags": list(dict.fromkeys(tags)),
             "description": description,
+            "organizer": organizer,
             "source_url": ev.get("eventUrl", calendar_url),
         })
 
@@ -461,6 +492,7 @@ def fetch_1mc_events(
         f"location (venue name and full address), "
         f"topic_tags (array using only: {', '.join(APPROVED_TAGS)}), "
         f"description (1-3 sentences about the event), "
+        f"organizer (name of the hosting organization or person, or '1 Million Cups' if unknown), "
         f"source_url (direct URL to the specific event — look in LINKS FOUND ON PAGE for individual "
         f"event URLs, NOT the calendar page {calendar_url!r}). "
         f"Return [] if no upcoming in-person events found.\n\n"
@@ -561,6 +593,9 @@ def create_event_record(event: dict) -> dict:
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
     }
+    organizer = str(event.get("organizer", "")).strip()
+    if organizer:
+        fields["Organizer"] = organizer
     end_time = str(event.get("end_time", "")).strip()
     if end_time:
         fields["End Time"] = end_time
