@@ -416,6 +416,7 @@ def main():
         else:
             page_text = fetch_page_text(url)
             if not page_text:
+                print(f"  SKIP (fetch failed or empty): {url}")
                 continue
             print(f"  Got {len(page_text)} chars — sending to Claude…")
             events = extract_events_from_text(client, page_text, url, today, end_date)
