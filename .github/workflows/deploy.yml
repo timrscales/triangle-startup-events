@@ -9,11 +9,23 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build React app
+        run: npm run build
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -23,7 +35,7 @@ jobs:
       - name: Install requests
         run: pip install requests --quiet
 
-      - name: Fetch approved events and build HTML
+      - name: Inject approved events into built HTML
         env:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         run: |
@@ -65,25 +77,27 @@ jobs:
                   "topic_tags":    f.get("Topic Tags", []),
                   "source_url":    f.get("Source URL", ""),
                   "organizer":     f.get("Organizer", ""),
+                  "start_time":    f.get("Start Time", ""),
+                  "end_time":      f.get("End Time", ""),
               })
 
           # Serialize and escape </script> to prevent tag injection
           json_str = json.dumps(events, ensure_ascii=False)
           json_str = json_str.replace("</", "<\\/")
 
-          with open("index.html", "r", encoding="utf-8") as fh:
-              html = fh.read()
+          import glob, re, pathlib
+
+          # Find the built index.html
+          dist_index = pathlib.Path("dist/index.html")
+          html = dist_index.read_text(encoding="utf-8")
 
           if "__EVENTS_JSON__" not in html:
-              raise RuntimeError("Placeholder __EVENTS_JSON__ not found in index.html")
+              raise RuntimeError("Placeholder __EVENTS_JSON__ not found in dist/index.html")
 
           html = html.replace("__EVENTS_JSON__", json_str)
+          dist_index.write_text(html, encoding="utf-8")
 
-          os.makedirs("dist", exist_ok=True)
-          with open("dist/index.html", "w", encoding="utf-8") as fh:
-              fh.write(html)
-
-          print(f"Built dist/index.html with {len(events)} approved event(s)")
+          print(f"Injected {len(events)} approved event(s) into dist/index.html")
           PYEOF
 
       - name: Deploy to GitHub Pages
