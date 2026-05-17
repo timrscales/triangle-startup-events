@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 import anthropic
 import requests
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
@@ -18,13 +18,12 @@ AIRTABLE_BASE_ID = "apprt7MFT8PcVhFY4"
 AIRTABLE_TABLE_NAME = "Events"
 AIRTABLE_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
 
-BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
 
 # Phase 1 sources — add new URLs here, or add a custom fetcher function for Phase 2
 SOURCES = [
@@ -42,25 +41,23 @@ APPROVED_TAGS = [
 MAX_PAGE_CHARS = 15000
 
 
-def fetch_page_text(url: str) -> str | None:
-    """Fetch a URL and return cleaned body text, or None on failure."""
+def fetch_page_text(url: str, max_chars: int = MAX_PAGE_CHARS) -> str | None:
+    """Render a URL with Playwright (headless Chromium) and return body text, or None on failure."""
     try:
-        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=BROWSER_USER_AGENT)
+            page.goto(url, timeout=30000)
+            page.wait_for_timeout(3000)  # Let JavaScript render
+            text = page.inner_text("body")
+            browser.close()
+    except Exception as exc:
         print(f"  ERROR fetching {url}: {exc}")
         return None
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
-        tag.decompose()
-
-    text = soup.get_text(separator="\n", strip=True)
     lines = [line for line in text.splitlines() if line.strip()]
     cleaned = "\n".join(lines)
-
-    return cleaned[:MAX_PAGE_CHARS]
+    return cleaned[:max_chars]
 
 
 def extract_events_from_text(
@@ -119,19 +116,10 @@ def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
     event_name = str(event.get("name", "unknown")).strip()
     print(f"  Enriching: {event_name} from {source_url}")
 
-    try:
-        resp = requests.get(source_url, headers=BROWSER_HEADERS, timeout=30)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"    ENRICH fetch failed for {source_url}: {exc}")
+    page_content = fetch_page_text(source_url, max_chars=8000)
+    if not page_content:
+        print(f"    ENRICH fetch failed for {source_url}")
         return event
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
-        tag.decompose()
-    text = soup.get_text(separator="\n", strip=True)
-    lines = [line for line in text.splitlines() if line.strip()]
-    page_content = "\n".join(lines)[:8000]
 
     print(f"  Got {len(page_content)} chars from detail page")
 
