@@ -101,6 +101,82 @@ def extract_events_from_text(
     return events
 
 
+def enrich_event(event: dict, client: anthropic.Anthropic, today: str) -> dict:
+    """Fetch the event's source_url and fill in missing start_time, end_time, location, description."""
+    needs_start = str(event.get("start_time", "")).strip() in ("", "00:00")
+    needs_end = str(event.get("end_time", "")).strip() == ""
+    if not (needs_start or needs_end):
+        return event
+
+    source_url = str(event.get("source_url", "")).strip()
+    if not source_url:
+        return event
+
+    try:
+        resp = requests.get(source_url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"    ENRICH fetch failed for {source_url}: {exc}")
+        return event
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+    lines = [line for line in text.splitlines() if line.strip()]
+    page_content = "\n".join(lines)[:8000]
+
+    prompt = (
+        "Extract event details from this page content and return ONLY a valid JSON object "
+        "with these fields: start_time (HH:MM 24-hour format or empty string if not found), "
+        "end_time (HH:MM 24-hour format or empty string if not found), "
+        "location (venue name and address or empty string), "
+        "description (1-3 sentence summary or empty string). "
+        "Return only the JSON object, nothing else.\n\n"
+        f"Page content:\n{page_content}"
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:
+        print(f"    ENRICH Claude call failed: {exc}")
+        return event
+
+    raw = ""
+    for block in response.content:
+        if hasattr(block, "type") and block.type == "text":
+            raw += block.text
+
+    raw = raw.strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return event
+
+    try:
+        details = json.loads(raw[start:end + 1])
+    except (json.JSONDecodeError, ValueError):
+        return event
+
+    if not isinstance(details, dict):
+        return event
+
+    enriched = dict(event)
+    if needs_start and details.get("start_time", "").strip():
+        enriched["start_time"] = details["start_time"].strip()
+    if needs_end and details.get("end_time", "").strip():
+        enriched["end_time"] = details["end_time"].strip()
+    for field in ("location", "description"):
+        if not str(enriched.get(field, "")).strip() and details.get(field, "").strip():
+            enriched[field] = details[field].strip()
+
+    return enriched
+
+
 def parse_events(text: str) -> list[dict]:
     """Extract the JSON events array from a text response."""
     text = text.strip()
@@ -235,6 +311,14 @@ def main():
     if not all_events:
         print("Nothing to add.")
         return
+
+    print("Enriching events with missing time/location details…")
+    enriched_events: list[dict] = []
+    for event in all_events:
+        enriched = enrich_event(event, client, today)
+        enriched_events.append(enriched)
+        time.sleep(0.5)
+    all_events = enriched_events
 
     print("Fetching existing Airtable events…")
     existing = get_existing_events()
