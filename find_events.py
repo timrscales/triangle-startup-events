@@ -519,6 +519,266 @@ def fetch_1mc_events(
     return events
 
 
+# ── CEDNC ─────────────────────────────────────────────────────────────────────
+
+TRIANGLE_TERMS = re.compile(
+    r"\b(Raleigh|Durham|Chapel Hill|RTP|Research Triangle|Cary|Morrisville|"
+    r"Apex|Wake Forest|Carrboro|Hillsborough|Pittsboro)\b",
+    re.I,
+)
+
+
+def _parse_cednc_article(article, today_dt: datetime, end_dt: datetime) -> dict | None:
+    """Extract event data from a single CEDNC <article> element."""
+    title_tag = article.find("a", href=True)
+    if not title_tag:
+        return None
+    name = title_tag.get_text(strip=True)
+    detail_url = title_tag["href"]
+
+    # Skip invite-only, clearly non-startup, or non-Triangle events by name
+    NON_TRIANGLE = re.compile(
+        r"\bcoastal\b|\btriad\b|\bcharlotte\b|\bgreensboro\b|\bwilmington\b|\basheville\b",
+        re.I,
+    )
+    if re.search(r"invite.?only|carrot conference", name, re.I):
+        return None
+    if NON_TRIANGLE.search(name):
+        return None
+
+    text = article.get_text(separator=" | ", strip=True)
+
+    # Skip virtual events
+    if re.search(r"\bvirtual\b|\bonline\b|\bwebinar\b", text, re.I):
+        return None
+
+    # Location: anything after the last "|" that looks like an address
+    loc_match = re.search(r"\|\s*([^|]{10,}?,\s*[A-Z]{2}[^|]*)", text)
+    location = loc_match.group(1).strip() if loc_match else ""
+
+    # Filter to Triangle area — skip if location is non-empty and not Triangle
+    if location and not TRIANGLE_TERMS.search(location):
+        return None
+
+    # Date: "May 21 @ 4:00 pm" or "May 15 | - | May 17" → use first date
+    date_match = re.search(
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s+(\d{1,2})(?:\s*@\s*(\d{1,2}:\d{2}\s*[ap]m))?",
+        text, re.I,
+    )
+    if not date_match:
+        return None
+
+    year = today_dt.year
+    try:
+        event_dt = datetime.strptime(f"{date_match.group(1)} {date_match.group(2)} {year}", "%B %d %Y")
+        if event_dt < today_dt:
+            event_dt = event_dt.replace(year=year + 1)
+    except ValueError:
+        return None
+
+    if event_dt < today_dt or event_dt > end_dt:
+        return None
+
+    date_str = event_dt.strftime("%Y-%m-%d")
+
+    start_time = "00:00"
+    end_time = ""
+    time_match = re.search(
+        r"@\s*(\d{1,2}:\d{2}\s*[ap]m)\s*[-–]\s*(\d{1,2}:\d{2}\s*[ap]m)", text, re.I
+    )
+    if time_match:
+        try:
+            start_time = datetime.strptime(time_match.group(1).strip(), "%I:%M %p").strftime("%H:%M")
+            end_time = datetime.strptime(time_match.group(2).strip(), "%I:%M %p").strftime("%H:%M")
+        except ValueError:
+            pass
+
+    return {
+        "name": name,
+        "date": date_str,
+        "start_time": start_time,
+        "end_time": end_time,
+        "location": location,
+        "topic_tags": ["startup founders", "entrepreneurship"],
+        "description": "",
+        "organizer": "",
+        "source_url": detail_url,
+        "_detail_url": detail_url,
+    }
+
+
+def _fetch_cednc_detail(event: dict) -> dict:
+    """Enrich a CEDNC event with organizer from its detail page."""
+    url = event.pop("_detail_url", "")
+    if not url:
+        return event
+    try:
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n", strip=True)
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        for i, line in enumerate(lines):
+            if line == "Organizer" and i + 1 < len(lines):
+                event["organizer"] = lines[i + 1]
+                break
+        # Use external "Website" as source_url if present
+        for i, line in enumerate(lines):
+            if line == "Website:" and i + 1 < len(lines):
+                candidate = lines[i + 1].strip()
+                if candidate.startswith("http"):
+                    event["source_url"] = candidate
+                break
+    except Exception:
+        pass
+    return event
+
+
+def fetch_cednc_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
+    """Scrape CEDNC event list and enrich each with organizer from detail page."""
+    try:
+        resp = requests.get("https://cednc.org/events/list/", headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"  SKIP (fetch failed): CEDNC — {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    articles = soup.find_all("article")
+    print(f"  CEDNC: {len(articles)} article(s) on list page")
+
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    events: list[dict] = []
+    for art in articles:
+        ev = _parse_cednc_article(art, today_dt, end_dt)
+        if ev:
+            ev = _fetch_cednc_detail(ev)
+            events.append(ev)
+            time.sleep(0.3)
+
+    print(f"  CEDNC: {len(events)} in-range Triangle event(s)")
+    return events
+
+
+# ── First Flight Venture Center ────────────────────────────────────────────────
+
+_FFVC_LOCATION = "First Flight Venture Center, 2 Davis Drive, Research Triangle Park, NC 27709"
+
+_IS_FULL_DATE = re.compile(
+    r"^(January|February|March|April|May|June|July|August|September|October|November|December)"
+    r" \d{1,2}, \d{4}$"
+)
+_IS_12H_TIME = re.compile(r"^\d{1,2}:\d{2} [AP]M")
+_IS_24H_TIME = re.compile(r"^\d{2}:\d{2} [–\-] \d{2}:\d{2}$")
+_IS_MONTH_ABBR = re.compile(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
+_IS_DAY_NUM = re.compile(r"^\d{1,2}$")
+
+
+def _is_date_or_time(s: str) -> bool:
+    return bool(
+        _IS_FULL_DATE.match(s) or _IS_12H_TIME.match(s) or _IS_24H_TIME.match(s)
+        or _IS_MONTH_ABBR.match(s) or _IS_DAY_NUM.match(s)
+    )
+
+
+def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
+    """Parse First Flight Venture Center events from their static events page."""
+    try:
+        resp = requests.get(calendar_url, headers=BROWSER_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"  SKIP (fetch failed): FFVC — {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+    lines = [l.strip().replace(" ", " ") for l in soup.get_text(separator="\n").splitlines() if l.strip()]
+
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    events: list[dict] = []
+
+    i = 0
+    while i < len(lines) - 1:
+        # Event block starts with month abbreviation + day number
+        if _IS_MONTH_ABBR.match(lines[i]) and i + 1 < len(lines) and _IS_DAY_NUM.match(lines[i + 1]):
+            event_date_str = None
+            event_time_str = None
+            title = None
+            description = None
+            k = i + 2
+
+            while k < len(lines):
+                line = lines[k]
+                # Stop when the next event block starts
+                if _IS_MONTH_ABBR.match(line) and k + 1 < len(lines) and _IS_DAY_NUM.match(lines[k + 1]):
+                    break
+                if _IS_FULL_DATE.match(line) and event_date_str is None:
+                    event_date_str = line
+                elif _IS_12H_TIME.match(line) and event_time_str is None:
+                    event_time_str = line
+                elif not _is_date_or_time(line):
+                    if title is None and len(line) > 5:
+                        title = line
+                    elif title is not None and len(line) > 50 and description is None:
+                        description = line
+                k += 1
+
+            i = k
+
+            if not event_date_str or not title:
+                continue
+            if re.search(r"\bvirtual\b|\bonline only\b|\bwebinar\b", title, re.I):
+                print(f"    SKIP (virtual): {title}")
+                continue
+
+            try:
+                event_dt = datetime.strptime(event_date_str, "%B %d, %Y")
+            except ValueError:
+                continue
+            if event_dt < today_dt or event_dt > end_dt:
+                continue
+
+            start_time, end_time = "00:00", ""
+            if event_time_str:
+                tm = re.match(r"(\d{1,2}:\d{2} [AP]M) – (\d{1,2}:\d{2} [AP]M)", event_time_str)
+                if tm:
+                    try:
+                        start_time = datetime.strptime(tm.group(1), "%I:%M %p").strftime("%H:%M")
+                        end_time = datetime.strptime(tm.group(2), "%I:%M %p").strftime("%H:%M")
+                    except ValueError:
+                        pass
+
+            tags = ["startup founders", "entrepreneurship"]
+            if re.search(r"\bpitch\b", title, re.I):
+                tags.append("pitch practice")
+            if re.search(r"\bnetwork\b", title, re.I):
+                tags.append("networking")
+
+            events.append({
+                "name": title,
+                "date": event_dt.strftime("%Y-%m-%d"),
+                "start_time": start_time,
+                "end_time": end_time,
+                "location": _FFVC_LOCATION,
+                "topic_tags": list(dict.fromkeys(tags)),
+                "description": description or "",
+                "organizer": "First Flight Venture Center",
+                "source_url": calendar_url,
+            })
+        else:
+            i += 1
+
+    print(f"  FFVC: {len(events)} in-range event(s)")
+    return events
+
+
 # ── Shared utilities ───────────────────────────────────────────────────────────
 
 def parse_events(text: str) -> list[dict]:
@@ -672,16 +932,30 @@ def main():
     print(f"Triangle Startup Events — {today} → {end_date}\n")
     all_events: list[dict] = []
 
-    print("[1/4] Lila Learning (requests + BeautifulSoup)…")
+    print("[1/10] Lila Learning…")
     all_events.extend(fetch_lila_events(today, end_date))
 
-    print("\n[2/4] Luma (API)…")
+    print("\n[2/10] Luma — Raleigh-Durham Startup Week…")
     all_events.extend(fetch_luma_events("https://lu.ma/raleighdurhamstartupweek", today, end_date))
 
-    print("\n[3/4] Meetup (requests + Apollo state)…")
-    all_events.extend(fetch_meetup_events("https://www.meetup.com/triangle-startup-collective/", today, end_date))
+    meetup_sources = [
+        ("triangle-startup-collective", "https://www.meetup.com/triangle-startup-collective/"),
+        ("founderslocal",               "https://www.meetup.com/founderslocal/"),
+        ("daretoshift",                 "https://www.meetup.com/daretoshift/"),
+        ("raleigh-startup-founder-101", "https://www.meetup.com/raleigh-startup-founder-101/"),
+        ("triangle-techbreakfast",      "https://www.meetup.com/triangle-techbreakfast/"),
+    ]
+    for idx, (label, url) in enumerate(meetup_sources, start=3):
+        print(f"\n[{idx}/10] Meetup — {label}…")
+        all_events.extend(fetch_meetup_events(url, today, end_date))
 
-    print("\n[4/4] 1 Million Cups (Playwright + Claude)…")
+    print("\n[8/10] CEDNC…")
+    all_events.extend(fetch_cednc_events("https://cednc.org/events/", today, end_date))
+
+    print("\n[9/10] First Flight Venture Center…")
+    all_events.extend(fetch_ffvc_events("https://www.ffvcnc.org/ourevents", today, end_date))
+
+    print("\n[10/10] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
         "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
         client, today, end_date,
