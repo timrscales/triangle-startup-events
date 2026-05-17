@@ -30,6 +30,7 @@ SOURCES = [
     "https://www.lilalearning.org/event-list",
     "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
     "https://lu.ma/raleighdurhamstartupweek",
+    "https://www.meetup.com/triangle-startup-collective/",
 ]
 
 APPROVED_TAGS = [
@@ -42,14 +43,16 @@ MAX_PAGE_CHARS = 15000
 
 
 def fetch_page_text(url: str, max_chars: int = MAX_PAGE_CHARS) -> str | None:
-    """Render a URL with Playwright (headless Chromium) and return body text, or None on failure."""
+    """Render a URL with Playwright (headless Chromium) and return body text + links, or None on failure."""
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(user_agent=BROWSER_USER_AGENT)
             page.goto(url, timeout=30000)
-            page.wait_for_timeout(3000)  # Let JavaScript render
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(6000)  # Extra buffer for late-rendering JS
             text = page.inner_text("body")
+            links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
             browser.close()
     except Exception as exc:
         print(f"  ERROR fetching {url}: {exc}")
@@ -57,7 +60,15 @@ def fetch_page_text(url: str, max_chars: int = MAX_PAGE_CHARS) -> str | None:
 
     lines = [line for line in text.splitlines() if line.strip()]
     cleaned = "\n".join(lines)
-    return cleaned[:max_chars]
+
+    if links:
+        unique_links = list(dict.fromkeys(links))  # deduplicate, preserve order
+        links_section = "\n\nLINKS FOUND ON PAGE:\n" + "\n".join(unique_links)
+        cleaned = cleaned[:max_chars - len(links_section)] + links_section
+    else:
+        cleaned = cleaned[:max_chars]
+
+    return cleaned
 
 
 def extract_events_from_text(
