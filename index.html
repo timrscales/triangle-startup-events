@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Triangle Startup Events</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:       #2D6A4F;
+      --green-dark:  #1B4332;
+      --green-light: #52B788;
+      --green-pale:  #D8F3DC;
+      --bg:          #F4F7F5;
+      --white:       #FFFFFF;
+      --text:        #1A2E1E;
+      --text-mid:    #4A5568;
+      --text-muted:  #718096;
+      --border:      #E2E8F0;
+      --shadow-sm:   0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md:   0 4px 16px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+      --radius:      12px;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--green);
+      color: var(--white);
+      padding: 3rem 1.5rem 2.75rem;
+      text-align: center;
+    }
+    .header-inner { max-width: 680px; margin: 0 auto; }
+    header h1 {
+      font-size: clamp(1.75rem, 4vw, 2.75rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 0.75rem;
+    }
+    header p {
+      font-size: clamp(0.9rem, 2vw, 1.05rem);
+      opacity: 0.82;
+      line-height: 1.65;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    /* ── Filter bar ── */
+    .filter-section {
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow-sm);
+    }
+    .filter-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0.7rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .filter-inner::-webkit-scrollbar { display: none; }
+    .filter-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-right: 0.2rem;
+    }
+    .filter-btn {
+      background: none;
+      border: 1.5px solid var(--border);
+      border-radius: 999px;
+      padding: 0.3rem 0.85rem;
+      font-size: 0.82rem;
+      font-family: inherit;
+      font-weight: 500;
+      color: var(--text-mid);
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: border-color 0.15s, background 0.15s, color 0.15s;
+    }
+    .filter-btn:hover { border-color: var(--green); color: var(--green); }
+    .filter-btn.active { background: var(--green); border-color: var(--green); color: var(--white); }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 3rem;
+      width: 100%;
+    }
+
+    /* ── Grid ── */
+    .events-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+    }
+    @media (max-width: 1024px) { .events-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 580px)  { .events-grid { grid-template-columns: 1fr; } }
+
+    /* ── Card ── */
+    .event-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    .event-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-md);
+    }
+    .event-card.hidden { display: none; }
+
+    .card-accent { height: 4px; background: var(--green); flex-shrink: 0; }
+
+    .card-body {
+      padding: 1.2rem 1.25rem 1rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .card-date {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .card-date svg { flex-shrink: 0; }
+
+    .card-name {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.35;
+    }
+
+    .card-organizer {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .card-location {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.3rem;
+      font-size: 0.83rem;
+      color: var(--text-mid);
+      line-height: 1.45;
+    }
+    .card-location svg { flex-shrink: 0; margin-top: 1px; }
+
+    .card-description {
+      font-size: 0.855rem;
+      color: var(--text-mid);
+      line-height: 1.58;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.35rem;
+    }
+    .tag-pill {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.18rem 0.52rem;
+      border-radius: 999px;
+      white-space: nowrap;
+      letter-spacing: 0.01em;
+    }
+
+    .card-footer {
+      padding: 0.9rem 1.25rem 1.1rem;
+      border-top: 1px solid var(--border);
+    }
+    .rsvp-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      width: 100%;
+      background: var(--green);
+      color: var(--white);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.88rem;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      letter-spacing: 0.04em;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .rsvp-btn:hover { background: var(--green-dark); transform: scale(1.015); }
+
+    /* ── Empty state ── */
+    .empty-state {
+      display: none;
+      text-align: center;
+      padding: 5rem 1rem;
+      color: var(--text-mid);
+    }
+    .empty-icon { font-size: 2.75rem; margin-bottom: 1rem; }
+    .empty-state h3 { font-size: 1.15rem; font-weight: 600; color: var(--text); margin-bottom: 0.4rem; }
+    .empty-state p  { font-size: 0.92rem; }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--text);
+      color: rgba(255,255,255,0.6);
+      text-align: center;
+      padding: 1.4rem 1.5rem;
+      font-size: 0.85rem;
+    }
+    footer a { color: var(--green-light); text-decoration: none; font-weight: 600; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <h1>Triangle Startup Events</h1>
+    <p>Free, in-person events for startup founders and their teams in the Triangle</p>
+  </div>
+</header>
+
+<div class="filter-section">
+  <div class="filter-inner" id="filter-bar">
+    <span class="filter-label">Filter:</span>
+    <button class="filter-btn active" data-tag="all">All events</button>
+  </div>
+</div>
+
+<main>
+  <div class="events-grid" id="events-grid"></div>
+  <div class="empty-state" id="empty-state">
+    <div class="empty-icon">🔍</div>
+    <h3>No events found</h3>
+    <p>No events match this filter right now. Try a different topic or check back soon.</p>
+  </div>
+</main>
+
+<footer>
+  <p>Curated by <a href="https://timscales.com" target="_blank" rel="noopener">Tim Scales</a></p>
+</footer>
+
+<script>
+  const EVENTS = [{"name": "⛳️✨ RTP Real Estate Founders, Investors, & Developers | TopGolf w/ Robert", "date": "2026-05-19", "friendly_date": "Tuesday, May 19 from 3pm-4:30pm", "location": "TopGolf, 4901 Topgolf Wy, Durham, NC 27703,, Durham, NC", "description": "You'll network with real estate investors and developers while golfing at TopGolf, learning deal strategies from expert Robert Arriaga on flipping properties and scaling portfolios.", "topic_tags": [], "source_url": "https://www.meetup.com/daretoshift/events/314386311/", "organizer": "DareToShift™ | Founders & Funders | Social Club & Community"}, {"name": "Close More, Guess Less: A Sales Workshop for Founders Ready to Scale", "date": "2026-05-20", "friendly_date": "Wednesday, May 20 from 1pm-5pm", "location": "Raleigh Founded - North Street", "description": "You'll learn proven sales frameworks and build a repeatable closing process that transforms your customer conversations into predictable revenue growth.", "topic_tags": [], "source_url": "https://lu.ma/5abh6dmk", "organizer": "Raleigh-Durham Startup Co."}, {"name": "Deal or No Deal? Evaluating the Pitch", "date": "2026-06-02", "friendly_date": "Tuesday, June 2 from 4:30pm-6:30pm", "location": "600 Park Offices Dr, Durham, NC 27713", "description": "You'll analyze real startup pitches, identify red flags, and practice due diligence techniques to evaluate market potential and investment risks like professional investors do.", "topic_tags": [], "source_url": "https://www.lilalearning.org/event-details/deal-or-no-deal-evaluating-the-pitch-5", "organizer": "LiLa (Ladies Investing / Local Angels)"}, {"name": "\"The Pink Pill\" Documentary Screening", "date": "2026-06-07", "friendly_date": "Sunday, June 7 at 3pm", "location": "Jones Auditorium", "description": "You'll watch a documentary exposing how Sprout Pharmaceuticals challenged the pharmaceutical industry to prioritize women's sexual health, then discuss the broader implications for female entrepreneurship and healthcare equity.", "topic_tags": [], "source_url": "https://lu.ma/1cuz9dln", "organizer": "Raleigh-Durham Startup Co."}];
+
+  const TAG_COLORS = {
+    'networking':         { bg: '#DBEAFE', text: '#1E40AF' },
+    'fundraising':        { bg: '#EDE9FE', text: '#6D28D9' },
+    'pitch practice':     { bg: '#FCE7F3', text: '#BE185D' },
+    'startup founders':   { bg: '#D1FAE5', text: '#065F46' },
+    'entrepreneurship':   { bg: '#ECFDF5', text: '#047857' },
+    'technology':         { bg: '#E0F2FE', text: '#0369A1' },
+    'AI':                 { bg: '#FEF3C7', text: '#92400E' },
+    'life science':       { bg: '#F3E8FF', text: '#7E22CE' },
+    'small business':     { bg: '#FFEDD5', text: '#C2410C' },
+    'happy hour':         { bg: '#FEF9C3', text: '#854D0E' },
+    'panel discussion':   { bg: '#E0E7FF', text: '#4338CA' },
+    'workshop':           { bg: '#FEE2E2', text: '#991B1B' },
+    'mentorship':         { bg: '#DCFCE7', text: '#166534' },
+    'investor relations': { bg: '#F0FDF4', text: '#15803D' },
+    'marketing':          { bg: '#FFF7ED', text: '#9A3412' },
+    'legal':              { bg: '#F8FAFC', text: '#334155' },
+    'finance':            { bg: '#F0F9FF', text: '#0369A1' },
+    'hiring':             { bg: '#FDF4FF', text: '#7E22CE' },
+    'celebration':        { bg: '#FFFBEB', text: '#B45309' },
+  };
+
+  const FALLBACK_COLORS = [
+    { bg: '#F1F5F9', text: '#475569' },
+    { bg: '#FEF2F2', text: '#B91C1C' },
+    { bg: '#F5F3FF', text: '#6D28D9' },
+  ];
+
+  function tagColor(tag) {
+    if (TAG_COLORS[tag]) return TAG_COLORS[tag];
+    let h = 0;
+    for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) & 0xfffffff;
+    return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+  }
+
+  function esc(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function friendlyDateFallback(dateStr) {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    const days   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
+    return `${days[dt.getDay()]}, ${months[dt.getMonth()]} ${dt.getDate()}`;
+  }
+
+  const CALENDAR_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;
+  const PIN_ICON      = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+  const ARROW_ICON    = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+
+  function renderCard(ev) {
+    const displayDate = ev.friendly_date || friendlyDateFallback(ev.date);
+    const tags = (ev.topic_tags || []);
+    const tagHtml = tags.map(t => {
+      const c = tagColor(t);
+      return `<span class="tag-pill" style="background:${c.bg};color:${c.text}">${esc(t)}</span>`;
+    }).join('');
+
+    return `
+      <div class="event-card" data-tags="${esc(tags.join(','))}">
+        <div class="card-accent"></div>
+        <div class="card-body">
+          ${displayDate ? `<div class="card-date">${CALENDAR_ICON}${esc(displayDate)}</div>` : ''}
+          <h2 class="card-name">${esc(ev.name)}</h2>
+          ${ev.organizer ? `<div class="card-organizer">${esc(ev.organizer)}</div>` : ''}
+          ${ev.location  ? `<div class="card-location">${PIN_ICON}${esc(ev.location)}</div>` : ''}
+          ${ev.description ? `<p class="card-description">${esc(ev.description)}</p>` : ''}
+          ${tagHtml ? `<div class="card-tags">${tagHtml}</div>` : ''}
+        </div>
+        <div class="card-footer">
+          <a href="${esc(ev.source_url)}" target="_blank" rel="noopener" class="rsvp-btn">
+            RSVP ${ARROW_ICON}
+          </a>
+        </div>
+      </div>`;
+  }
+
+  let activeFilter = 'all';
+
+  function applyFilter() {
+    let visible = 0;
+    document.querySelectorAll('.event-card').forEach(card => {
+      const match = activeFilter === 'all' ||
+        card.dataset.tags.split(',').map(t => t.trim()).includes(activeFilter);
+      card.classList.toggle('hidden', !match);
+      if (match) visible++;
+    });
+    document.getElementById('empty-state').style.display = visible === 0 ? 'block' : 'none';
+  }
+
+  function init() {
+    const grid  = document.getElementById('events-grid');
+    const empty = document.getElementById('empty-state');
+
+    if (!EVENTS || EVENTS.length === 0) {
+      empty.style.display = 'block';
+      return;
+    }
+
+    grid.innerHTML = EVENTS.map(renderCard).join('');
+
+    // Collect unique tags across all events
+    const allTags = [...new Set(EVENTS.flatMap(ev => ev.topic_tags || []))].sort();
+
+    const filterBar = document.getElementById('filter-bar');
+    allTags.forEach(tag => {
+      const btn = document.createElement('button');
+      btn.className = 'filter-btn';
+      btn.dataset.tag = tag;
+      btn.textContent = tag;
+      filterBar.appendChild(btn);
+    });
+
+    filterBar.addEventListener('click', e => {
+      const btn = e.target.closest('.filter-btn');
+      if (!btn) return;
+      activeFilter = btn.dataset.tag;
+      filterBar.querySelectorAll('.filter-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      applyFilter();
+    });
+  }
+
+  init();
+</script>
+</body>
+</html>
