@@ -839,6 +839,38 @@ def get_existing_events() -> set[tuple[str, str]]:
     return existing
 
 
+def format_friendly_date(date_str: str, start_time: str, end_time: str) -> str:
+    """Return a human-friendly date string, e.g. 'Wednesday, May 20 from 1pm-5pm'."""
+    if not date_str:
+        return ""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return ""
+
+    date_part = dt.strftime("%A, %B %-d")
+
+    def fmt_time(t: str) -> str:
+        if not t or t == "00:00":
+            return ""
+        try:
+            td = datetime.strptime(t, "%H:%M")
+            if td.minute == 0:
+                return td.strftime("%-I%p").lower()
+            return td.strftime("%-I:%M%p").lower()
+        except ValueError:
+            return ""
+
+    start = fmt_time(start_time)
+    end = fmt_time(end_time)
+
+    if start and end:
+        return f"{date_part} from {start}-{end}"
+    if start:
+        return f"{date_part} at {start}"
+    return date_part
+
+
 def create_event_record(event: dict) -> dict:
     """Write a single event to Airtable."""
     headers = {
@@ -853,6 +885,11 @@ def create_event_record(event: dict) -> dict:
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
     }
+    friendly = format_friendly_date(
+        event.get("date", ""), event.get("start_time", ""), event.get("end_time", "")
+    )
+    if friendly:
+        fields["Friendly Date"] = friendly
     organizer = str(event.get("organizer", "")).strip()
     if organizer:
         fields["Organizer"] = organizer

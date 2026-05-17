@@ -1,0 +1,94 @@
+name: Deploy Event Calendar
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install requests
+        run: pip install requests --quiet
+
+      - name: Fetch approved events and build HTML
+        env:
+          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, requests
+
+          API_KEY = os.environ["AIRTABLE_API_KEY"]
+          BASE_ID = "apprt7MFT8PcVhFY4"
+          TABLE   = "Events"
+          URL     = f"https://api.airtable.com/v0/{BASE_ID}/{TABLE}"
+
+          headers = {"Authorization": f"Bearer {API_KEY}"}
+          params  = {
+              "filterByFormula": "{Approved}=TRUE()",
+              "sort[0][field]": "Date",
+              "sort[0][direction]": "asc",
+          }
+
+          records = []
+          while True:
+              resp = requests.get(URL, headers=headers, params=params, timeout=30)
+              resp.raise_for_status()
+              data = resp.json()
+              records.extend(data.get("records", []))
+              offset = data.get("offset")
+              if not offset:
+                  break
+              params["offset"] = offset
+
+          events = []
+          for r in records:
+              f = r.get("fields", {})
+              events.append({
+                  "name":          f.get("Name", ""),
+                  "date":          f.get("Date", ""),
+                  "friendly_date": f.get("Friendly Date", ""),
+                  "location":      f.get("Location", ""),
+                  "description":   f.get("Description", ""),
+                  "topic_tags":    f.get("Topic Tags", []),
+                  "source_url":    f.get("Source URL", ""),
+                  "organizer":     f.get("Organizer", ""),
+              })
+
+          # Serialize and escape </script> to prevent tag injection
+          json_str = json.dumps(events, ensure_ascii=False)
+          json_str = json_str.replace("</", "<\\/")
+
+          with open("index.html", "r", encoding="utf-8") as fh:
+              html = fh.read()
+
+          if "__EVENTS_JSON__" not in html:
+              raise RuntimeError("Placeholder __EVENTS_JSON__ not found in index.html")
+
+          html = html.replace("__EVENTS_JSON__", json_str)
+
+          os.makedirs("dist", exist_ok=True)
+          with open("dist/index.html", "w", encoding="utf-8") as fh:
+              fh.write(html)
+
+          print(f"Built dist/index.html with {len(events)} approved event(s)")
+          PYEOF
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          commit_message: "Deploy event calendar [${{ github.run_number }}]"

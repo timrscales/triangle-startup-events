@@ -5,6 +5,10 @@ on:
     - cron: '0 14 * * *'  # 10:00 AM ET (UTC-4 in EDT)
   workflow_dispatch:       # Allow manual runs from the Actions tab
 
+permissions:
+  contents: read
+  actions: write           # Required to trigger deploy.yml
+
 jobs:
   find-events:
     runs-on: ubuntu-latest
@@ -31,3 +35,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         run: python find_events.py
+
+      - name: Trigger calendar deploy
+        if: success()
+        run: gh workflow run deploy.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
