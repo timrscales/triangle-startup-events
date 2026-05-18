@@ -14,24 +14,50 @@ import {
 import { useHash } from './useHash.js'
 
 // ──────────────────────── Data layer ────────────────────────
+function stableId(e) {
+  const str = `${e.date}|${e.start_time}|${e.name}`
+  let h = 0
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
+
+function parseTimeStr(t) {
+  if (!t) return ''
+  if (/^\d{2}:\d{2}$/.test(t)) return t
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i)
+  if (m) {
+    let h = parseInt(m[1])
+    const min = m[2] ? parseInt(m[2]) : 0
+    if (m[3].toLowerCase() === 'pm' && h !== 12) h += 12
+    if (m[3].toLowerCase() === 'am' && h === 12) h = 0
+    return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`
+  }
+  return t
+}
+
 function cityFromLocation(loc) {
   if (!loc) return ''
-  const parts = loc.split(',')
-  return (parts[parts.length - 1] || '').trim()
+  if (loc.includes('Research Triangle Park') || loc.includes('Triangle Park')) return 'RTP'
+  for (const city of ['Raleigh', 'Durham', 'Chapel Hill', 'Cary']) {
+    if (loc.includes(city)) return city
+  }
+  return ''
 }
 
 function normalizeEvent(e) {
   return {
     ...e,
+    id: e.id || stableId(e),
+    host: e.host || e.organizer || '',
+    event_type: e.event_type || '',
     audience: e.audience || [],
     topic_tags: e.topic_tags || [],
     description: e.description || '',
-    host: e.host || '',
     location: e.location || '',
     city: e.city || cityFromLocation(e.location),
     friendly_date: e.friendly_date || '',
-    start_time: e.start_time || '00:00',
-    end_time: e.end_time || '00:00',
+    start_time: parseTimeStr(e.start_time),
+    end_time: parseTimeStr(e.end_time),
     editors_pick: e.editors_pick || false,
   }
 }
