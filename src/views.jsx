@@ -100,12 +100,12 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
 
   return (
     <div style={{ padding: "16px 28px 24px", display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
         {DOW_SHORT.map(d => (
           <div key={d} style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--muted)", padding: "4px 8px" }}>{d}</div>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6, flex: 1, minHeight: 0 }}>
         {days.map((d, i) => {
           const inMonth = d.getMonth() === cursor.getMonth()
           const isToday = sameDay(d, TODAY)
@@ -118,6 +118,7 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
               padding: 8, display: "flex", flexDirection: "column", gap: 4,
               minHeight: 110, opacity: inMonth ? 1 : 0.4,
               cursor: dayEvents.length ? "pointer" : "default",
+              minWidth: 0, overflow: "hidden",
             }} onClick={() => dayEvents.length && onSelectDay(d)}>
               <div style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -187,12 +188,12 @@ const MonthViewMobile = ({ cursor, events, days, onSelectEvent, onSelectDay }) =
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--line)" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", marginBottom: 6 }}>
           {DOW_SHORT.map(d => (
             <div key={d} style={{ fontSize: 10, fontWeight: 800, color: "var(--muted)", textAlign: "center", letterSpacing: "0.1em" }}>{d[0]}</div>
           ))}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 2 }}>
           {days.map((d, i) => {
             const inMonth = d.getMonth() === cursor.getMonth()
             const isToday = sameDay(d, TODAY)
@@ -255,7 +256,7 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       {/* Day header */}
       <div style={{
-        display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`,
+        display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, minmax(0, 1fr))`,
         borderBottom: "1px solid var(--line)", background: "var(--paper)",
         position: "sticky", top: 0, zIndex: 2,
       }}>
@@ -280,7 +281,7 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
       </div>
       {/* Grid — fits without scroll (8am–8pm) */}
       <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-        <div style={{ display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`, position: "relative" }}>
+        <div style={{ display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, minmax(0, 1fr))`, position: "relative" }}>
           <div>
             {hours.map(h => (
               <div key={h} style={{ height: ROW_H, fontSize: 10, color: "var(--muted)", padding: "2px 6px", textAlign: "right", fontWeight: 700 }}>
