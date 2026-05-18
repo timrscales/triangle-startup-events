@@ -77,14 +77,14 @@ const DetailPanel = ({ event, onClose, device }) => {
         <DetailRow label="Tags">
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {event.topic_tags.map((t) => {
-              const c = tagStyle(t);
-              return (
-                <span key={t} style={{
-                  fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700,
-                  color: c.fg, background: c.bg, padding: "3px 8px",
-                }}>#{t.replace(/\s+/g, "")}</span>
-              );
-            })}
+            const c = tagStyle(t);
+            return (
+              <span key={t} style={{
+                fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500,
+                color: c.fg, background: c.bg, padding: "3px 8px"
+              }}>#{t.replace(/\s+/g, "")}</span>);
+
+          })}
           </div>
         </DetailRow>
       </div>
@@ -147,7 +147,11 @@ const DetailRow = ({ label, children }) =>
   </div>;
 
 
+const SUBMIT_URL = "https://airtable.com/apprt7MFT8PcVhFY4/pagkomS1oueDY2OLn/form";
+
 // ──────────────────────── Submit modal ────────────────────────
+// Unused as of switching to Airtable hosted form — kept in case we want to
+// bring back the in-app form later.
 const SubmitModal = ({ onClose, device }) => {
   const isMobile = device === "mobile";
   const [form, setForm] = useS3({
@@ -186,10 +190,10 @@ const SubmitModal = ({ onClose, device }) => {
         }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", color: "var(--muted)", textTransform: "uppercase" }}>
-              Submit
+
             </div>
-            <h2 style={{ fontSize: isMobile ? 20 : 24, fontWeight: 900, letterSpacing: "-0.015em", margin: "4px 0 0" }}>
-              Add an event
+            <h2 style={{ fontSize: isMobile ? 20 : 24, fontWeight: 900, letterSpacing: "-0.015em", margin: "4px 0 0" }}>Submit an Event
+
             </h2>
           </div>
           <button onClick={onClose} aria-label="Close" style={iconBtn(isMobile)}><XIcon /></button>
@@ -217,7 +221,7 @@ const SubmitModal = ({ onClose, device }) => {
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
               <Field label="Date" required><input required type="date" value={form.date} onChange={(e) => set("date", e.target.value)} style={inp} /></Field>
               <Field label="Start" required><input required type="time" value={form.start_time} onChange={(e) => set("start_time", e.target.value)} style={inp} /></Field>
-              <Field label="End"><input type="time" value={form.end_time} onChange={(e) => set("end_time", e.target.value)} style={inp} /></Field>
+              <Field label="End time"><input type="time" value={form.end_time} onChange={(e) => set("end_time", e.target.value)} style={inp} /></Field>
             </div>
             <Field label="Location" required>
               <input required value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="Venue name, address" style={inp} />
@@ -248,10 +252,10 @@ const SubmitModal = ({ onClose, device }) => {
               <textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={3} placeholder="One or two sentences. What will people get out of it?" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} />
             </Field>
             <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.45, padding: "8px 0" }}>
-              <strong style={{ color: "var(--ink-2)" }}>Two rules:</strong> the event must be free, and it must be in-person somewhere in the Triangle. Submissions are reviewed before going live.
+              <strong style={{ color: "var(--ink-2)" }}>The Rules:</strong> Events must be free, in-person somewhere in the Triangle, and designed for startup founders and their teams. Submissions are reviewed before going live.
             </div>
             <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
-              <button type="submit" style={{ ...ctaBtn, flex: 1, padding: "14px 18px", fontSize: 14 }}>Submit for review</button>
+              <button type="submit" style={{ ...ctaBtn, flex: 1, padding: "14px 18px", fontSize: 14 }}>Submit for Review</button>
               <button type="button" onClick={onClose} style={{ padding: "14px 18px", fontFamily: "inherit", fontSize: 13, fontWeight: 800, background: "var(--paper)", border: "1px solid var(--line)", color: "var(--ink-2)", cursor: "pointer" }}>Cancel</button>
             </div>
           </form>
@@ -369,7 +373,6 @@ const TriangleEventsApp = ({ device = "desktop", cardVariant = "standard" }) => 
   const [view, setView] = useS3("Month");
   const [cursor, setCursor] = useS3(new Date(TODAY));
   const [selected, setSelected] = useS3(null);
-  const [submitOpen, setSubmitOpen] = useS3(false);
   const [filters, setFilters] = useS3({ cities: [], types: [], audiences: [], topics: [] });
   const [search, setSearch] = useS3("");
   const [searchOpen, setSearchOpen] = useS3(false);
@@ -392,7 +395,7 @@ const TriangleEventsApp = ({ device = "desktop", cardVariant = "standard" }) => 
       <TopBar
         device={device}
         view={view} setView={setView}
-        onSubmit={() => setSubmitOpen(true)}
+        onSubmit={() => window.open(SUBMIT_URL, "_blank", "noopener,noreferrer")}
         searchOpen={searchOpen} setSearchOpen={setSearchOpen} />
       
       <FilterBar
@@ -415,7 +418,6 @@ const TriangleEventsApp = ({ device = "desktop", cardVariant = "standard" }) => 
       <Footer device={device} />
 
       {selected && <DetailPanel event={selected} onClose={() => setSelected(null)} device={device} />}
-      {submitOpen && <SubmitModal onClose={() => setSubmitOpen(false)} device={device} />}
     </div>);
 
 };

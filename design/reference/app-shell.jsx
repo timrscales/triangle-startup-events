@@ -40,10 +40,10 @@ const ALL_TOPICS = ["AI", "fundraising", "hardware", "design", "networking", "ha
 // and event pills. Events get colored by their primary tag, so the chip
 // you click matches the pills that appear on the calendar.
 const ACCENT_PALETTE = [
-  { dot: "#FFB648", soft: "#FFE9C2", deep: "#E68A00" }, // amber
-  { dot: "#FC7777", soft: "#FDDADA", deep: "#E10505" }, // coral
-  { dot: "#B577FC", soft: "#E6D3FE", deep: "#6B05E1" }, // violet
-  { dot: "#1BE0B0", soft: "#C7F5E6", deep: "#009F97" }, // mint
+  { dot: "#FFB648", soft: "#FFE9C2", deep: "#8C5400" }, // amber
+  { dot: "#FC7777", soft: "#FDDADA", deep: "#B30202" }, // coral
+  { dot: "#B577FC", soft: "#E6D3FE", deep: "#5A04C0" }, // violet
+  { dot: "#1BE0B0", soft: "#C7F5E6", deep: "#006B65" }, // mint
   { dot: "#009DE0", soft: "#C9E9F7", deep: "#003D69" }, // cyan
 ];
 const TAG_PALETTE = ACCENT_PALETTE.map(p => ({ bg: p.soft, fg: p.deep }));

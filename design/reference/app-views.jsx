@@ -62,7 +62,7 @@ const FilterBar = ({ device, filters, setFilters, search, setSearch, searchOpen,
               onClick={() => toggle(tag)}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
-                padding: "6px 10px", fontSize: 12, fontWeight: 700,
+                padding: "6px 10px", fontSize: 12, fontWeight: 500,
                 fontFamily: "var(--font-mono)", cursor: "pointer",
                 background: active ? c.fg : c.bg,
                 color: active ? "#fff" : c.fg,
@@ -105,7 +105,7 @@ const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }) => {
   return (
     <div style={{ padding: "16px 28px 24px", display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
       {/* Weekday header */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
         {DOW_SHORT.map((d, i) => (
           <div key={d} style={{
             fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase",
@@ -113,7 +113,7 @@ const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }) => {
           }}>{d}</div>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gridAutoRows: "minmax(0, 1fr)", gap: 6, flex: 1, minHeight: 0 }}>
         {days.map((d, i) => {
           const inMonth = d.getMonth() === cursor.getMonth();
           const isToday = sameDay(d, TODAY);
@@ -125,7 +125,7 @@ const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }) => {
               background: isToday ? "rgba(0,157,224,0.04)" : "var(--paper)",
               padding: 8,
               display: "flex", flexDirection: "column", gap: 4,
-              minHeight: 110,
+              minHeight: 0, minWidth: 0, overflow: "hidden",
               opacity: inMonth ? 1 : 0.4,
               cursor: dayEvents.length ? "pointer" : "default",
             }}
@@ -138,7 +138,7 @@ const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }) => {
                 <span style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center",
                   width: isToday ? 22 : "auto", height: isToday ? 22 : "auto",
-                  background: isToday ? "var(--rdsw-blue)" : "transparent",
+                  background: isToday ? "var(--rdsw-blue-dark)" : "transparent",
                   color: isToday ? "#fff" : "inherit",
                   borderRadius: isToday ? "50%" : 0,
                 }}>{d.getDate()}</span>
@@ -148,13 +148,13 @@ const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }) => {
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-                {dayEvents.slice(0, 3).map(e => (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                {dayEvents.slice(0, 2).map(e => (
                   <MonthEventPill key={e.id} event={e} onClick={ev => { ev.stopPropagation(); onSelectEvent(e); }} />
                 ))}
-                {dayEvents.length > 3 && (
+                {dayEvents.length > 2 && (
                   <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, padding: "2px 4px" }}>
-                    +{dayEvents.length - 3} more
+                    +{dayEvents.length - 2} more
                   </div>
                 )}
               </div>
@@ -168,24 +168,44 @@ const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }) => {
 
 const MonthEventPill = ({ event, onClick }) => {
   const style = eventStyle(event);
+  const venue = (event.location || "").split(",")[0].trim();
   return (
     <div onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: 5,
-      padding: "3px 5px",
+      display: "flex", flexDirection: "column", gap: 1,
+      padding: "5px 7px",
       cursor: "pointer",
       borderLeft: `3px solid ${style.dot}`,
       background: style.soft,
-      fontSize: 11,
-      lineHeight: 1.2,
+      lineHeight: 1.25,
       transition: "transform 120ms",
+      minWidth: 0, overflow: "hidden",
     }}
     onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={e => e.currentTarget.style.transform = ""}
     >
-      <span style={{ fontWeight: 800, color: style.deep, whiteSpace: "nowrap" }}>{fmtTime(event.start_time)}</span>
-      <span style={{ fontWeight: 600, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <div style={{
+        fontSize: 10, fontWeight: 800, color: style.deep,
+        letterSpacing: "0.02em", whiteSpace: "nowrap",
+        overflow: "hidden", textOverflow: "ellipsis",
+      }}>
+        {fmtTimeRange(event.start_time, event.end_time)}
+      </div>
+      <div style={{
+        fontSize: 12, fontWeight: 700, color: "var(--ink)",
+        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+        overflow: "hidden", wordBreak: "break-word",
+      }}>
         {event.name}
-      </span>
+      </div>
+      {venue && (
+        <div style={{
+          fontSize: 10, fontWeight: 600, color: "var(--muted)",
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          marginTop: 1,
+        }}>
+          {venue}
+        </div>
+      )}
     </div>
   );
 };
@@ -198,12 +218,12 @@ const MonthViewMobile = ({ cursor, events, days, onSelectEvent }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--line)" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", marginBottom: 6 }}>
           {DOW_SHORT.map(d => (
             <div key={d} style={{ fontSize: 10, fontWeight: 800, color: "var(--muted)", textAlign: "center", letterSpacing: "0.1em" }}>{d[0]}</div>
           ))}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 2 }}>
           {days.map((d, i) => {
             const inMonth = d.getMonth() === cursor.getMonth();
             const isToday = sameDay(d, TODAY);
@@ -269,7 +289,7 @@ const WeekView = ({ device, cursor, events, onSelectEvent }) => {
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       {/* Day header */}
       <div style={{
-        display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`,
+        display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, minmax(0, 1fr))`,
         borderBottom: "1px solid var(--line)", background: "var(--paper)",
         position: "sticky", top: 0, zIndex: 2,
       }}>
@@ -290,7 +310,7 @@ const WeekView = ({ device, cursor, events, onSelectEvent }) => {
                 letterSpacing: "-0.02em", marginTop: 2,
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 width: isToday ? (isMobile ? 26 : 32) : "auto", height: isToday ? (isMobile ? 26 : 32) : "auto",
-                background: isToday ? "var(--rdsw-blue)" : "transparent",
+                background: isToday ? "var(--rdsw-blue-dark)" : "transparent",
                 color: isToday ? "#fff" : "inherit", borderRadius: isToday ? "50%" : 0,
               }}>{d.getDate()}</div>
             </div>
@@ -299,7 +319,7 @@ const WeekView = ({ device, cursor, events, onSelectEvent }) => {
       </div>
       {/* Grid (fits without scroll) */}
       <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-        <div style={{ display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`, position: "relative" }}>
+        <div style={{ display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, minmax(0, 1fr))`, position: "relative" }}>
           {/* Hour gutter */}
           <div>
             {hours.map(h => (
