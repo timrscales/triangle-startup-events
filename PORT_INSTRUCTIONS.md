@@ -45,6 +45,7 @@ This brief is intentionally short. The prototype encodes every visual decision. 
 - **Today = cyan circle on the date number** in all three views. The Month grid also gives today's cell a cyan border and faint cyan tint.
 - **Square corners by default.** Borders only — no rounded "left-border accent" cards. No gradients. Shadows only on hover.
 - **Week view: 8am–8pm, fits without scrolling.** Don't change the time range or add vertical scroll to the grid.
+- **CSS Grid columns use `minmax(0, 1fr)`, not `1fr`.** This is critical for the Month and Week views. A bare `1fr` track expands to fit oversized children — so a long event title will blow out one column and shrink the others, producing visibly unequal day columns. Every `repeat(7, ...)` in the day-grid CSS must be `repeat(7, minmax(0, 1fr))`. Day cells also need `min-width: 0` and `overflow: hidden` so long pill text gets clipped instead of expanding the cell.
 - **List view shows upcoming events only** (today and later). Past events are not shown.
 
 ---
