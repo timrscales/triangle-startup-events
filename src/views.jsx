@@ -154,20 +154,20 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
                 )}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minHeight: 0 }}>
-                {dayEvents.length === 1
-                  ? <MonthEventPill event={dayEvents[0]} onClick={ev => { ev.stopPropagation(); onSelectEvent(dayEvents[0], ev.currentTarget) }} />
-                  : <>
-                      {dayEvents.slice(0, 2).map(e => (
-                        <MonthEventThinBar key={e.id} event={e} onClick={ev => { ev.stopPropagation(); onSelectEvent(e, ev.currentTarget) }} />
-                      ))}
-                      {dayEvents.length > 2 && (
-                        <div
-                          onClick={(ev) => { ev.stopPropagation(); onSelectDay(d, ev.currentTarget) }}
-                          style={{ fontSize: 11, color: "var(--rdsw-blue)", fontWeight: 800, padding: "1px 4px", cursor: "pointer", letterSpacing: "0.01em" }}>
-                          +{dayEvents.length - 2} more
-                        </div>
-                      )}
-                    </>
+                {dayEvents.length === 0 ? null
+                  : dayEvents.length === 1
+                    ? <MonthEventPill event={dayEvents[0]} onClick={ev => { ev.stopPropagation(); onSelectEvent(dayEvents[0], ev.currentTarget) }} />
+                    : <>
+                        <MonthEventThinBar event={dayEvents[0]} onClick={ev => { ev.stopPropagation(); onSelectEvent(dayEvents[0], ev.currentTarget) }} />
+                        {dayEvents.length === 2
+                          ? <MonthEventThinBar event={dayEvents[1]} onClick={ev => { ev.stopPropagation(); onSelectEvent(dayEvents[1], ev.currentTarget) }} />
+                          : <div
+                              onClick={(ev) => { ev.stopPropagation(); onSelectDay(d, ev.currentTarget) }}
+                              style={{ fontSize: 11, color: "var(--rdsw-blue)", fontWeight: 800, padding: "1px 4px", cursor: "pointer", letterSpacing: "0.01em" }}>
+                              +{dayEvents.length - 1} more
+                            </div>
+                        }
+                      </>
                 }
               </div>
             </div>
