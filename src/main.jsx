@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/colors_and_type.css'
 import './styles/app.css'
-import TriangleEventsApp from './App.jsx'
+// TODO: import TriangleEventsApp from './App.jsx' once port is complete
 
 function Root() {
   const [device, setDevice] = useState(
@@ -16,7 +16,7 @@ function Root() {
     return () => mq.removeEventListener('change', handler)
   }, [])
 
-  return <TriangleEventsApp device={device} cardVariant="standard" />
+  return <div style={{ padding: 40, fontFamily: 'sans-serif' }}>Port in progress — components not yet wired up.</div>
 }
 
 createRoot(document.getElementById('root')).render(<Root />)
