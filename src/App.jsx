@@ -247,7 +247,11 @@ const DetailRow = ({ label, children }) => (
   </div>
 )
 
+const SUBMIT_URL = "https://airtable.com/apprt7MFT8PcVhFY4/pagkomS1oueDY2OLn/form"
+
 // ── Submit modal ──────────────────────────────────────────────────────────────
+// Unused as of switching to Airtable hosted form — kept in case we want to
+// bring back the in-app form later.
 const SubmitModal = ({ onClose, device }) => {
   const isMobile = device === "mobile"
   const [form, setForm] = useState({
@@ -315,7 +319,7 @@ const SubmitModal = ({ onClose, device }) => {
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
               <Field label="Date" required><input required type="date" value={form.date} onChange={e => set("date", e.target.value)} style={inp} /></Field>
               <Field label="Start" required><input required type="time" value={form.start_time} onChange={e => set("start_time", e.target.value)} style={inp} /></Field>
-              <Field label="End"><input type="time" value={form.end_time} onChange={e => set("end_time", e.target.value)} style={inp} /></Field>
+              <Field label="End time"><input type="time" value={form.end_time} onChange={e => set("end_time", e.target.value)} style={inp} /></Field>
             </div>
             <Field label="Location" required>
               <input required value={form.location} onChange={e => set("location", e.target.value)} placeholder="Venue name, address" style={inp} />
@@ -465,7 +469,6 @@ const Footer = ({ device }) => {
 // ── Root app ──────────────────────────────────────────────────────────────────
 export default function TriangleEventsApp({ device = "desktop", cardVariant = "standard" }) {
   const [hash, setHash] = useHash()
-  const [submitOpen, setSubmitOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
 
   const view   = hash.view   || "List"
@@ -511,7 +514,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
       background: "var(--paper)", color: "var(--ink)", fontFamily: "var(--font-sans)",
       position: "relative", overflow: "hidden",
     }}>
-      <TopBar device={device} view={view} setView={setView} onSubmit={() => setSubmitOpen(true)} searchOpen={searchOpen} setSearchOpen={setSearchOpen} />
+      <TopBar device={device} view={view} setView={setView} onSubmit={() => window.open(SUBMIT_URL, "_blank", "noopener,noreferrer")} searchOpen={searchOpen} setSearchOpen={setSearchOpen} />
 
       <FilterBar
         device={device} events={allEvents}
@@ -531,8 +534,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
 
       <Footer device={device} />
 
-      {selected    && <DetailPanel event={selected} onClose={() => setSelected(null)} device={device} />}
-      {submitOpen  && <SubmitModal onClose={() => setSubmitOpen(false)} device={device} />}
+      {selected && <DetailPanel event={selected} onClose={() => setSelected(null)} device={device} />}
     </div>
   )
 }
