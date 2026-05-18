@@ -30,33 +30,33 @@ BROWSER_HEADERS = {
 }
 
 APPROVED_TAGS = [
-    "networking",
-    "workshop",
-    "pitch practice",
-    "panel discussion",
-    "community",
-    "fundraising",
-    "sales",
-    "mentorship",
-    "AI & data",
-    "tech & product",
-    "life science",
-    "marketing",
-    "hiring",
-    "legal",
-    "finance",
-    "investor meetup",
-    "accelerator",
-    "demo day",
-    "hardware & deeptech",
-    "climate & sustainability",
-    "social impact",
-    "coworking",
-    "women founders",
-    "Black founders",
-    "Latino founders",
-    "LGBTQ+ founders",
-    "student founders",
+    "Networking",
+    "Workshop",
+    "Pitch Practice",
+    "Panel Discussion",
+    "Community",
+    "Fundraising",
+    "Sales",
+    "Mentorship",
+    "AI & Data",
+    "Tech & Product",
+    "Life Science",
+    "Marketing",
+    "Hiring",
+    "Legal",
+    "Finance",
+    "Investor Meetup",
+    "Accelerator",
+    "Demo Day",
+    "Hardware & Deeptech",
+    "Climate & Sustainability",
+    "Social Impact",
+    "Coworking",
+    "Women Founders",
+    "Black Founders",
+    "Latino Founders",
+    "LGBTQ+ Founders",
+    "Student Founders",
 ]
 
 
@@ -186,17 +186,17 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
         lines = [l for l in text.splitlines() if l.strip()]
         description = " ".join(lines[4:8])[:350]
 
-    tags = ["community"]
+    tags = ["Community"]
     if re.search(r"\bpitch\b|\bpitching\b", text, re.I):
-        tags.append("pitch practice")
+        tags.append("Pitch Practice")
     if re.search(r"\binvest\b", text, re.I):
-        tags.append("investor meetup")
+        tags.append("Investor Meetup")
     if re.search(r"\bnetwork\b", text, re.I):
-        tags.append("networking")
+        tags.append("Networking")
     if re.search(r"\bworkshop\b|\bhands.on\b", text, re.I):
-        tags.append("workshop")
+        tags.append("Workshop")
     if re.search(r"\bai\b|artificial intelligence|machine learning", text, re.I):
-        tags.append("AI & data")
+        tags.append("AI "AI & data" Data")
 
     return {
         "name": name,
@@ -347,7 +347,7 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
             "start_time": start_time_str,
             "end_time": end_time_str,
             "location": location,
-            "topic_tags": ["networking", "community"],
+            "topic_tags": ["Networking", "Community"],
             "description": description,
             "organizer": organizer,
             "source_url": source_url,
@@ -450,13 +450,13 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
         group_ref = ev.get("group", {}).get("__ref", "") if isinstance(ev.get("group"), dict) else ""
         organizer = groups.get(group_ref, "")
 
-        tags = ["networking", "community"]
+        tags = ["Networking", "Community"]
         if re.search(r"\bai\b|artificial intelligence|machine learning", description, re.I):
-            tags.append("AI & data")
+            tags.append("AI "AI & data" Data")
         if re.search(r"\bfundrais", description, re.I):
-            tags.append("fundraising")
+            tags.append("Fundraising")
         if re.search(r"\bpitch\b|\bpitching\b", description, re.I):
-            tags.append("pitch practice")
+            tags.append("Pitch Practice")
 
         events.append({
             "name": ev.get("title", "").strip(),
@@ -627,7 +627,7 @@ def _parse_cednc_article(article, today_dt: datetime, end_dt: datetime) -> dict 
         "start_time": start_time,
         "end_time": end_time,
         "location": location,
-        "topic_tags": ["community"],
+        "topic_tags": ["Community"],
         "description": "",
         "organizer": "",
         "source_url": detail_url,
@@ -782,15 +782,15 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
                     except ValueError:
                         pass
 
-            tags = ["community"]
+            tags = ["Community"]
             if re.search(r"\bpitch\b", title, re.I):
-                tags.append("pitch practice")
+                tags.append("Pitch Practice")
             if re.search(r"\bnetwork\b", title, re.I):
-                tags.append("networking")
+                tags.append("Networking")
             if re.search(r"\bai\b|artificial intelligence", title, re.I):
-                tags.append("AI & data")
+                tags.append("AI "AI & data" Data")
             if re.search(r"\bdemo\b", title, re.I):
-                tags.append("demo day")
+                tags.append("Demo Day")
 
             events.append({
                 "name": title,
