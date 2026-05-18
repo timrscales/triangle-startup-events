@@ -187,7 +187,7 @@ const DetailPanel = ({ event, onClose, device }) => {
                 const c = tagStyle(t)
                 return (
                   <span key={t} style={{
-                    fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700,
+                    fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500,
                     color: c.fg, background: c.bg, padding: "3px 8px",
                   }}>#{t.replace(/\s+/g, "")}</span>
                 )

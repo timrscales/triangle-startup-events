@@ -61,7 +61,7 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
           return (
             <button key={tag} onClick={() => toggle(tag)} style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              padding: "6px 10px", fontSize: 12, fontWeight: 700,
+              padding: "6px 10px", fontSize: 12, fontWeight: 500,
               fontFamily: "var(--font-mono)", cursor: "pointer",
               background: active ? c.fg : c.bg,
               color: active ? "#fff" : c.fg,
@@ -105,7 +105,7 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
           <div key={d} style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--muted)", padding: "4px 8px" }}>{d}</div>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gridAutoRows: "minmax(0, 1fr)", gap: 6, flex: 1, minHeight: 0 }}>
         {days.map((d, i) => {
           const inMonth = d.getMonth() === cursor.getMonth()
           const isToday = sameDay(d, TODAY)
@@ -116,9 +116,9 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
               border: `1px solid ${isToday ? "var(--rdsw-blue)" : "var(--line)"}`,
               background: isToday ? "rgba(0,157,224,0.04)" : "var(--paper)",
               padding: 8, display: "flex", flexDirection: "column", gap: 4,
-              minHeight: 110, opacity: inMonth ? 1 : 0.4,
+              minHeight: 0, minWidth: 0, overflow: "hidden",
+              opacity: inMonth ? 1 : 0.4,
               cursor: dayEvents.length ? "pointer" : "default",
-              minWidth: 0, overflow: "hidden",
             }} onClick={() => dayEvents.length && onSelectDay(d)}>
               <div style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -127,7 +127,7 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
                 <span style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center",
                   width: isToday ? 22 : "auto", height: isToday ? 22 : "auto",
-                  background: isToday ? "var(--rdsw-blue)" : "transparent",
+                  background: isToday ? "var(--rdsw-blue-dark)" : "transparent",
                   color: isToday ? "#fff" : "inherit",
                   borderRadius: isToday ? "50%" : 0,
                 }}>{d.getDate()}</span>
@@ -137,13 +137,13 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-                {dayEvents.slice(0, 3).map(e => (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                {dayEvents.slice(0, 2).map(e => (
                   <MonthEventPill key={e.id} event={e} onClick={ev => { ev.stopPropagation(); onSelectEvent(e); }} />
                 ))}
-                {dayEvents.length > 3 && (
+                {dayEvents.length > 2 && (
                   <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, padding: "2px 4px" }}>
-                    +{dayEvents.length - 3} more
+                    +{dayEvents.length - 2} more
                   </div>
                 )}
               </div>
