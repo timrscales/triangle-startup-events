@@ -11,3 +11,13 @@ html, body, #root { height: 100%; }
   from { transform: translateY(40px); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }
 }
+
+@keyframes tseFadeScale {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes tseScrim {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

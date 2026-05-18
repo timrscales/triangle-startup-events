@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import {
   TODAY, MONTHS, DOW_SHORT, DOW_FULL, ALL_CITIES, ALL_TYPES, ALL_AUDIENCES,
   parseDate, sameDay, addDays, startOfWeek,
@@ -9,7 +9,7 @@ import {
 } from './shell.jsx'
 import {
   FilterBar, MonthView, WeekView, ListView,
-  TypeChip, PickBadge,
+  PickBadge,
 } from './views.jsx'
 import { useHash } from './useHash.js'
 
@@ -70,8 +70,106 @@ function toISO(d) {
 
 const SUBMIT_URL = "https://airtable.com/apprt7MFT8PcVhFY4/pagkomS1oueDY2OLn/form"
 
+// ──────────────────────── Anchored-popover helpers ────────────────────────
+
+// Element rect in the app root's pre-transform local space.
+function localRect(el, root) {
+  if (!el || !root) return null
+  const er = el.getBoundingClientRect()
+  const rr = root.getBoundingClientRect()
+  const sx = (rr.width  / root.offsetWidth)  || 1
+  const sy = (rr.height / root.offsetHeight) || 1
+  return {
+    top:    (er.top    - rr.top)  / sy,
+    left:   (er.left   - rr.left) / sx,
+    bottom: (er.bottom - rr.top)  / sy,
+    right:  (er.right  - rr.left) / sx,
+    width:  er.width  / sx,
+    height: er.height / sy,
+  }
+}
+
+// Prefers below + left-aligned; flips on either axis when it would clip.
+function computeAnchorPos(anchor, w, h, vw, vh, gap = 8, pad = 12) {
+  let top = anchor.bottom + gap
+  if (top + h > vh - pad) {
+    const above = anchor.top - gap - h
+    top = above >= pad ? above : Math.max(pad, vh - h - pad)
+  }
+  let left = anchor.left
+  if (left + w > vw - pad) {
+    const ra = anchor.right - w
+    left = ra >= pad ? ra : Math.max(pad, vw - w - pad)
+  }
+  return { top: Math.max(pad, top), left: Math.max(pad, left) }
+}
+
+// Two-pass render: off-screen (opacity 0) first so useLayoutEffect can measure,
+// then snaps to computed position. Falls back to a centered position when
+// anchorRect is null (e.g., event opened via URL).
+const AnchoredPopover = ({ anchorRect, root, width, onClose, children, ariaLabel }) => {
+  const panelRef = useRef(null)
+  const [pos, setPos] = useState(null)
+
+  useLayoutEffect(() => {
+    if (!panelRef.current || !root) return
+    const effective = anchorRect || {
+      top: root.offsetHeight * 0.28,
+      bottom: root.offsetHeight * 0.28 + 1,
+      left: root.offsetWidth / 2 - width / 2,
+      right: root.offsetWidth / 2 + width / 2,
+      width, height: 0,
+    }
+    const p = computeAnchorPos(
+      effective,
+      panelRef.current.offsetWidth,
+      panelRef.current.offsetHeight,
+      root.offsetWidth,
+      root.offsetHeight,
+    )
+    setPos(p)
+  }, [anchorRect, root])
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose() }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [onClose])
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, zIndex: 20 }} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-label={ariaLabel}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "absolute",
+          top: pos?.top ?? -9999, left: pos?.left ?? -9999,
+          width,
+          maxHeight: root ? root.offsetHeight - 24 : "90vh",
+          zIndex: 30,
+          opacity: pos ? 1 : 0,
+          background: "var(--paper)",
+          boxShadow: "var(--shadow-3)",
+          display: "flex", flexDirection: "column",
+          overflow: "hidden",
+          animation: pos ? "tseFadeScale 160ms var(--ease-out)" : "none",
+        }}>
+        {children}
+      </div>
+    </>
+  )
+}
+
+const HostIcon = () =>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01"/>
+  </svg>
+
 // ──────────────────────── Detail panel ────────────────────────
-const DetailPanel = ({ event, onClose, device }) => {
+const DetailPanel = ({ event, anchorRect, root, onClose, device }) => {
   const isMobile = device === "mobile"
   const style = eventStyle(event)
 
@@ -82,141 +180,174 @@ const DetailPanel = ({ event, onClose, device }) => {
   }, [onClose])
 
   const content =
-  <div style={{
-    display: "flex", flexDirection: "column", height: "100%",
-    background: "var(--paper)"
-  }}>
+    <div style={{ display: "flex", flexDirection: "column", background: "var(--paper)", maxHeight: "100%", overflow: "hidden" }}>
       <div style={{
-      background: style.soft, padding: isMobile ? "16px 16px 18px" : "22px 24px 24px",
-      borderBottom: `3px solid ${style.dot}`, position: "relative"
-    }}>
-        <button onClick={onClose} aria-label="Close" style={{
-        position: "absolute", top: 12, right: 12,
-        width: 32, height: 32, background: "rgba(255,255,255,0.85)", border: 0, cursor: "pointer",
-        display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink)"
+        background: style.soft, padding: isMobile ? "16px 16px 18px" : "22px 24px 24px",
+        borderBottom: `3px solid ${style.dot}`, position: "relative"
       }}>
+        <button onClick={onClose} aria-label="Close" style={{
+          position: "absolute", top: 12, right: 12,
+          width: 32, height: 32, background: "rgba(255,255,255,0.85)", border: 0, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink)"
+        }}>
           <XIcon />
         </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <TypeChip style={style} type={event.event_type} />
-          {event.editors_pick && <PickBadge />}
-        </div>
+        {event.editors_pick && (
+          <div style={{ marginBottom: 10 }}><PickBadge /></div>
+        )}
         <h2 style={{
-        fontSize: isMobile ? 22 : 28, fontWeight: 900, color: "var(--ink)",
-        letterSpacing: "-0.018em", lineHeight: 1.08, margin: 0, paddingRight: 32
-      }}>{event.name}</h2>
+          fontSize: isMobile ? 22 : 28, fontWeight: 900, color: "var(--ink)",
+          letterSpacing: "-0.018em", lineHeight: 1.08, margin: 0, paddingRight: 32
+        }}>{event.name}</h2>
         <div style={{ fontSize: 14, fontWeight: 700, color: style.deep, marginTop: 10 }}>
           {event.friendly_date}
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px" }}>
-        <DetailRow label="Where">
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, color: "var(--ink-2)", fontSize: 14, lineHeight: 1.45 }}>
-            <span style={{ paddingTop: 2, color: "var(--muted)" }}><PinIcon /></span>
-            <div>
-              <div style={{ fontWeight: 700 }}>{event.location.split(",")[0]}</div>
-              <div style={{ color: "var(--muted)", fontSize: 13 }}>{event.location.split(",").slice(1).join(",").trim()}</div>
-            </div>
+      <div style={{ overflowY: "auto", padding: isMobile ? "18px 16px" : "24px", display: "flex", flexDirection: "column", gap: 16, minHeight: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", height: 20, color: "var(--muted)", flexShrink: 0 }}><HostIcon /></span>
+          <div style={{ fontSize: 14, lineHeight: 1.4 }}>
+            <span style={{ color: "var(--muted)" }}>Hosted by </span>
+            <b style={{ fontWeight: 800, color: "var(--ink)" }}>{event.host}</b>
           </div>
-        </DetailRow>
+        </div>
 
-        <DetailRow label="Hosted by">
-          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-2)" }}>{event.host}</div>
-        </DetailRow>
-
-        <DetailRow label="For">
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {event.audience.map((a) =>
-          <span key={a} style={{
-            fontSize: 12, fontWeight: 700, color: "var(--ink-3)",
-            background: "var(--paper-2)", padding: "4px 10px", border: "1px solid var(--line)"
-          }}>{a}</span>
-          )}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", height: 20, color: "var(--muted)", flexShrink: 0 }}><PinIcon /></span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "var(--ink-2)", lineHeight: 1.4 }}>{event.location.split(",")[0]}</div>
+            <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 2, lineHeight: 1.4 }}>{event.location.split(",").slice(1).join(",").trim()}</div>
           </div>
-        </DetailRow>
+        </div>
 
-        <DetailRow label="About">
-          <p style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55, margin: 0 }}>
+        {event.description && (
+          <p style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55, margin: "4px 0 0" }}>
             {event.description}
           </p>
-        </DetailRow>
+        )}
 
-        <DetailRow label="Tags">
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {event.topic_tags.map((t) => {
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 14, borderTop: "1px solid var(--line)", marginTop: 4 }}>
+          {event.topic_tags.map((t) => {
             const c = tagStyle(t)
             return (
               <span key={t} style={{
                 fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500,
                 color: c.fg, background: c.bg, padding: "3px 8px"
-              }}>#{t.replace(/\s+/g, "")}</span>)
-
+              }}>#{t.replace(/\s+/g, "")}</span>
+            )
           })}
-          </div>
-        </DetailRow>
+        </div>
       </div>
 
-      <div style={{
-      padding: isMobile ? 14 : 18, borderTop: "1px solid var(--line)",
-      background: "var(--paper)", display: "flex", gap: 10
-    }}>
+      <div style={{ padding: isMobile ? 14 : 18, borderTop: "1px solid var(--line)", background: "var(--paper)" }}>
         <a href={event.source_url} target="_blank" rel="noopener noreferrer" style={{
-        flex: 1, textAlign: "center", textDecoration: "none",
-        background: "var(--accent-mint)", color: "var(--rdsw-blue-dark)",
-        padding: "13px 18px", fontWeight: 800, fontSize: 14, letterSpacing: "0.01em",
-        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-        transition: "background 120ms"
-      }}
-      onMouseEnter={(e) => e.currentTarget.style.background = "var(--accent-mint-deep)"}
-      onMouseLeave={(e) => e.currentTarget.style.background = "var(--accent-mint)"}
-      onClick={(e) => e.stopPropagation()}>
-
+          display: "flex", textAlign: "center", textDecoration: "none",
+          background: "var(--accent-mint)", color: "var(--rdsw-blue-dark)",
+          padding: "13px 18px", fontWeight: 800, fontSize: 14, letterSpacing: "0.01em",
+          alignItems: "center", justifyContent: "center", gap: 8,
+          transition: "background 120ms"
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.background = "var(--accent-mint-deep)"}
+        onMouseLeave={(e) => e.currentTarget.style.background = "var(--accent-mint)"}
+        onClick={(e) => e.stopPropagation()}>
           Learn More & RSVP <ExternalIcon />
         </a>
-        <button onClick={() => navigator.clipboard?.writeText(window.location.href + "#" + event.id)} style={{
-        padding: "13px 16px", fontFamily: "inherit", fontSize: 13, fontWeight: 800,
-        background: "var(--paper)", border: "1px solid var(--line)", color: "var(--ink-2)", cursor: "pointer"
-      }}>Share</button>
       </div>
     </div>
 
+  if (isMobile) {
+    return (
+      <>
+        <div onClick={onClose} style={{
+          position: "absolute", inset: 0, background: "rgba(10,10,10,0.35)", zIndex: 25,
+          animation: "tseScrim 180ms var(--ease-out)"
+        }} />
+        <div style={{
+          position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "92vh", zIndex: 30,
+          background: "var(--paper)", boxShadow: "var(--shadow-3)",
+          display: "flex", flexDirection: "column",
+          animation: "tseSlideUp 220ms var(--ease-out)"
+        }}>{content}</div>
+      </>
+    )
+  }
+
+  return (
+    <AnchoredPopover anchorRect={anchorRect} root={root} width={420} onClose={onClose} ariaLabel="Event details">
+      {content}
+    </AnchoredPopover>
+  )
+}
+
+// ──────────────────────── Day popover ────────────────────────
+const DayPopoverRow = ({ event, onClick }) => {
+  const style = eventStyle(event)
+  return (
+    <div onClick={onClick} style={{
+      display: "flex", flexDirection: "column", gap: 2,
+      padding: "9px 11px", cursor: "pointer",
+      borderLeft: `3px solid ${style.dot}`, background: style.soft,
+      lineHeight: 1.3, transition: "transform 120ms",
+    }}
+    onMouseEnter={(e) => e.currentTarget.style.transform = "translateX(2px)"}
+    onMouseLeave={(e) => e.currentTarget.style.transform = ""}
+    >
+      <div style={{ fontSize: 11, fontWeight: 800, color: style.deep, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {fmtTimeRange(event.start_time, event.end_time)}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+        {event.name}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
+        {event.host}
+      </div>
+    </div>
+  )
+}
+
+const DayPopover = ({ date, anchorRect, root, events, onSelectEvent, onClose, device }) => {
+  const isMobile = device === "mobile"
+  const content = (
+    <div style={{ display: "flex", flexDirection: "column", background: "var(--paper)", maxHeight: "100%", overflow: "hidden" }}>
+      <div style={{ padding: "14px 16px 12px", borderBottom: "1px solid var(--line)", position: "relative" }}>
+        <button onClick={onClose} aria-label="Close" style={{
+          position: "absolute", top: 10, right: 10,
+          width: 28, height: 28, background: "var(--paper)", border: "1px solid var(--line)",
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink-2)"
+        }}><XIcon /></button>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 2 }}>
+          {DOW_FULL[date.getDay()]}
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: "var(--ink)", letterSpacing: "-0.015em" }}>
+          {MONTHS[date.getMonth()]} {date.getDate()}
+        </div>
+      </div>
+      <div style={{ overflowY: "auto", padding: 10, display: "flex", flexDirection: "column", gap: 6, minHeight: 0 }}>
+        {events.map((e) => (
+          <DayPopoverRow key={e.id} event={e} onClick={(ev) => { ev.stopPropagation(); onSelectEvent(e, ev.currentTarget) }} />
+        ))}
+      </div>
+    </div>
+  )
 
   if (isMobile) {
     return (
-      <div style={{
-        position: "absolute", inset: 0, background: "var(--paper)", zIndex: 30,
-        display: "flex", flexDirection: "column",
-        animation: "tseSlideUp 220ms var(--ease-out)"
-      }}>{content}</div>)
-
+      <>
+        <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(10,10,10,0.35)", zIndex: 25, animation: "tseScrim 180ms var(--ease-out)" }} />
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "75vh", zIndex: 30, background: "var(--paper)", boxShadow: "var(--shadow-3)", display: "flex", flexDirection: "column", animation: "tseSlideUp 220ms var(--ease-out)" }}>{content}</div>
+      </>
+    )
   }
   return (
-    <>
-      <div onClick={onClose} style={{
-        position: "absolute", inset: 0, background: "rgba(10,10,10,0.18)", zIndex: 20
-      }} />
-      <div style={{
-        position: "absolute", top: 0, right: 0, bottom: 0, width: 480, zIndex: 30,
-        boxShadow: "var(--shadow-3)",
-        animation: "tseSlideIn 220ms var(--ease-out)"
-      }}>{content}</div>
-    </>)
-
+    <AnchoredPopover anchorRect={anchorRect} root={root} width={300} onClose={onClose} ariaLabel="Events this day">
+      {content}
+    </AnchoredPopover>
+  )
 }
 
-const DetailRow = ({ label, children }) =>
-<div style={{ marginBottom: 22 }}>
-    <div style={{
-    fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase",
-    color: "var(--muted)", marginBottom: 8
-  }}>{label}</div>
-    {children}
-  </div>
-
-
-// ──────────────────────── Submit modal ────────────────────────
-// Unused — submit button opens Airtable hosted form. Kept for future in-app form.
+// ──────────────────────── Submit modal (unused) ────────────────────────
+// Submit button opens Airtable hosted form. Kept in case we want to bring back the in-app form.
 // eslint-disable-next-line no-unused-vars
 const SubmitModal = ({ onClose, device }) => {
   const isMobile = device === "mobile"
@@ -255,22 +386,18 @@ const SubmitModal = ({ onClose, device }) => {
           display: "flex", alignItems: "center", justifyContent: "space-between"
         }}>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", color: "var(--muted)", textTransform: "uppercase" }}>
-
-            </div>
-            <h2 style={{ fontSize: isMobile ? 20 : 24, fontWeight: 900, letterSpacing: "-0.015em", margin: "4px 0 0" }}>Submit an Event
-
-            </h2>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", color: "var(--muted)", textTransform: "uppercase" }}></div>
+            <h2 style={{ fontSize: isMobile ? 20 : 24, fontWeight: 900, letterSpacing: "-0.015em", margin: "4px 0 0" }}>Submit an Event</h2>
           </div>
           <button onClick={onClose} aria-label="Close" style={iconBtn(isMobile)}><XIcon /></button>
         </div>
 
         {submitted ?
-        <div style={{ padding: 40, textAlign: "center" }}>
+          <div style={{ padding: 40, textAlign: "center" }}>
             <div style={{
-            width: 56, height: 56, background: "var(--accent-mint-soft)", color: "var(--accent-mint-deep)",
-            display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16
-          }}>
+              width: 56, height: 56, background: "var(--accent-mint-soft)", color: "var(--accent-mint-deep)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16
+            }}>
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
             </div>
             <h3 style={{ fontSize: 22, fontWeight: 900, letterSpacing: "-0.012em", margin: "0 0 8px" }}>Thanks — we'll take a look.</h3>
@@ -280,7 +407,7 @@ const SubmitModal = ({ onClose, device }) => {
             <button onClick={onClose} style={{ ...ctaBtn, marginTop: 20 }}>Close</button>
           </div> :
 
-        <form onSubmit={submit} style={{ padding: isMobile ? 16 : "22px 28px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+          <form onSubmit={submit} style={{ padding: isMobile ? 16 : "22px 28px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
             <Field label="Event name" required>
               <input required value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. AI Tinkerers Monthly" style={inp} />
             </Field>
@@ -299,16 +426,16 @@ const SubmitModal = ({ onClose, device }) => {
             <Field label="Who is it for?">
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {ALL_AUDIENCES.map((a) => {
-                const on = form.audience.includes(a)
-                return (
-                  <button type="button" key={a} onClick={() => toggleAud(a)} style={{
-                    padding: "7px 12px", fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
-                    background: on ? "var(--rdsw-blue-dark)" : "var(--paper)",
-                    color: on ? "#fff" : "var(--ink-2)",
-                    border: `1px solid ${on ? "var(--rdsw-blue-dark)" : "var(--line)"}`
-                  }}>{a}</button>)
-
-              })}
+                  const on = form.audience.includes(a)
+                  return (
+                    <button type="button" key={a} onClick={() => toggleAud(a)} style={{
+                      padding: "7px 12px", fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
+                      background: on ? "var(--rdsw-blue-dark)" : "var(--paper)",
+                      color: on ? "#fff" : "var(--ink-2)",
+                      border: `1px solid ${on ? "var(--rdsw-blue-dark)" : "var(--line)"}`
+                    }}>{a}</button>
+                  )
+                })}
               </div>
             </Field>
             <Field label="RSVP / source URL" required>
@@ -327,18 +454,17 @@ const SubmitModal = ({ onClose, device }) => {
           </form>
         }
       </div>
-    </div>)
-
+    </div>
+  )
 }
 
 const Field = ({ label, required, children }) =>
-<label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
     <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--ink-3)" }}>
       {label}{required && <span style={{ color: "var(--accent-coral-deep)", marginLeft: 4 }}>*</span>}
     </span>
     {children}
   </label>
-
 
 const inp = {
   padding: "10px 12px", fontSize: 14, fontFamily: "inherit",
@@ -347,25 +473,24 @@ const inp = {
 }
 
 const Select = ({ value, onChange, options }) =>
-<select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inp, appearance: "none", backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%2710%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%236B7785%27 stroke-width=%273%27><path d=%27m6 9 6 6 6-6%27/></svg>")', backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 30 }}>
+  <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inp, appearance: "none", backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%2710%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%236B7785%27 stroke-width=%273%27><path d=%27m6 9 6 6 6-6%27/></svg>")', backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 30 }}>
     {options.map((o) => <option key={o} value={o}>{o}</option>)}
   </select>
-
 
 // ──────────────────────── Period navigator ────────────────────────
 const PeriodNav = ({ view, cursor, setCursor, device, resultCount }) => {
   const isMobile = device === "mobile"
   const label = view === "Week" ?
-  (() => {
-    const start = startOfWeek(cursor)
-    const end = addDays(start, 6)
-    if (start.getMonth() === end.getMonth()) {
-      return `${MONTHS[start.getMonth()]} ${start.getDate()}–${end.getDate()}, ${start.getFullYear()}`
-    }
-    return `${MONTHS[start.getMonth()].slice(0, 3)} ${start.getDate()} – ${MONTHS[end.getMonth()].slice(0, 3)} ${end.getDate()}`
-  })() :
-  view === "Month" ? `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}` :
-  "Upcoming events"
+    (() => {
+      const start = startOfWeek(cursor)
+      const end = addDays(start, 6)
+      if (start.getMonth() === end.getMonth()) {
+        return `${MONTHS[start.getMonth()]} ${start.getDate()}–${end.getDate()}, ${start.getFullYear()}`
+      }
+      return `${MONTHS[start.getMonth()].slice(0, 3)} ${start.getDate()} – ${MONTHS[end.getMonth()].slice(0, 3)} ${end.getDate()}`
+    })() :
+    view === "Month" ? `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}` :
+    "Upcoming events"
   const move = (n) => {
     if (view === "Month") {
       const next = new Date(cursor); next.setMonth(next.getMonth() + n); setCursor(next)
@@ -385,24 +510,24 @@ const PeriodNav = ({ view, cursor, setCursor, device, resultCount }) => {
           color: "var(--ink)", margin: 0, lineHeight: 1.1
         }}>{label}</h2>
         {view !== "List" &&
-        <div style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
+          <div style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
             <button onClick={() => move(-1)} style={navBtn}><ChevronLeft /></button>
             <button onClick={() => move(1)} style={navBtn}><ChevronRight /></button>
             <button onClick={() => setCursor(new Date(TODAY))} style={{
-            padding: "0 12px", height: 32, fontSize: 12, fontWeight: 800, letterSpacing: "0.02em",
-            fontFamily: "inherit", border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink-2)",
-            cursor: "pointer", marginLeft: 4
-          }}>Today</button>
+              padding: "0 12px", height: 32, fontSize: 12, fontWeight: 800, letterSpacing: "0.02em",
+              fontFamily: "inherit", border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink-2)",
+              cursor: "pointer", marginLeft: 4
+            }}>Today</button>
           </div>
         }
       </div>
       {isMobile &&
-      <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>
+        <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>
           {resultCount} {resultCount === 1 ? "event" : "events"}
         </div>
       }
-    </div>)
-
+    </div>
+  )
 }
 
 const navBtn = {
@@ -430,14 +555,18 @@ const Footer = ({ device }) => {
         <a href="#" style={{ color: "var(--ink-3)", fontWeight: 600, textDecoration: "none" }}></a>
         <a href="#" style={{ color: "var(--ink-3)", fontWeight: 600, textDecoration: "none" }}></a>
       </div>
-    </div>)
-
+    </div>
+  )
 }
 
 // ──────────────────────── Main app ────────────────────────
 export default function TriangleEventsApp({ device = "desktop", cardVariant = "standard" }) {
+  const rootRef = useRef(null)
+  const isMobile = device === 'mobile'
   const [hash, setHash] = useHash()
   const [searchOpen, setSearchOpen] = useState(false)
+  const [anchorRect, setAnchorRect] = useState(null)
+  const [dayPopover, setDayPopover] = useState(null) // { date, anchorRect }
 
   const view = hash.view || 'List'
   const cursor = useMemo(() => {
@@ -466,7 +595,25 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
     })
   }, [setHash])
   const setSearch = useCallback((q) => setHash(h => ({ ...h, q })), [setHash])
-  const setSelected = useCallback((event) => setHash(h => ({ ...h, event: event ? event.id : null })), [setHash])
+
+  const selectEvent = useCallback((event, anchorEl) => {
+    setDayPopover(null)
+    const rect = (anchorEl && rootRef.current && !isMobile)
+      ? localRect(anchorEl, rootRef.current) : null
+    setAnchorRect(rect)
+    setHash(h => ({ ...h, event: event ? event.id : null }))
+  }, [setHash, isMobile])
+
+  const closeEvent = useCallback(() => {
+    setAnchorRect(null)
+    setHash(h => ({ ...h, event: null }))
+  }, [setHash])
+
+  const selectDay = useCallback((date, anchorEl) => {
+    const rect = (anchorEl && rootRef.current && !isMobile)
+      ? localRect(anchorEl, rootRef.current) : null
+    setDayPopover({ date, anchorRect: rect })
+  }, [isMobile])
 
   const filteredAll = useMemo(() => applyFilters(EVENTS, filters, search), [filters, search])
   const filteredForView = useMemo(() => {
@@ -474,8 +621,15 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
     return filteredAll.filter((e) => parseDate(e.date) >= new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate()))
   }, [filteredAll, view])
 
+  const dayPopoverEvents = useMemo(() => {
+    if (!dayPopover) return []
+    return filteredAll
+      .filter(e => sameDay(parseDate(e.date), dayPopover.date))
+      .sort((a, b) => a.start_time.localeCompare(b.start_time))
+  }, [dayPopover, filteredAll])
+
   return (
-    <div style={{
+    <div ref={rootRef} style={{
       width: "100%", height: "100%",
       display: "flex", flexDirection: "column",
       background: "var(--paper)", color: "var(--ink)",
@@ -500,14 +654,19 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
       <PeriodNav view={view} cursor={cursor} setCursor={setCursor} device={device} resultCount={filteredForView.length} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-        {view === "Month" && <MonthView device={device} cursor={cursor} events={filteredForView} onSelectEvent={setSelected} onSelectDay={() => {}} />}
-        {view === "Week" && <WeekView device={device} cursor={cursor} events={filteredForView} onSelectEvent={setSelected} />}
-        {view === "List" && <ListView device={device} events={filteredForView} onSelectEvent={setSelected} cardVariant={cardVariant} />}
+        {view === "Month" && <MonthView device={device} cursor={cursor} events={filteredForView} onSelectEvent={selectEvent} onSelectDay={selectDay} />}
+        {view === "Week" && <WeekView device={device} cursor={cursor} events={filteredForView} onSelectEvent={selectEvent} />}
+        {view === "List" && <ListView device={device} events={filteredForView} onSelectEvent={selectEvent} cardVariant={cardVariant} />}
       </div>
 
       <Footer device={device} />
 
-      {selected && <DetailPanel event={selected} onClose={() => setSelected(null)} device={device} />}
-    </div>)
-
+      {selected && (
+        <DetailPanel event={selected} anchorRect={anchorRect} root={rootRef.current} onClose={closeEvent} device={device} />
+      )}
+      {dayPopover && (
+        <DayPopover date={dayPopover.date} anchorRect={dayPopover.anchorRect} root={rootRef.current} events={dayPopoverEvents} onSelectEvent={selectEvent} onClose={() => setDayPopover(null)} device={device} />
+      )}
+    </div>
+  )
 }

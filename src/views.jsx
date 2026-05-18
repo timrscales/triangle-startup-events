@@ -111,7 +111,7 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
     <div style={{ padding: "16px 28px 24px", display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
       {/* Weekday header */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
-        {DOW_SHORT.map((d, i) => (
+        {DOW_SHORT.map((d) => (
           <div key={d} style={{
             fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase",
             color: "var(--muted)", padding: "4px 8px",
@@ -134,7 +134,7 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
               opacity: inMonth ? 1 : 0.4,
               cursor: dayEvents.length ? "pointer" : "default",
             }}
-            onClick={() => dayEvents.length && onSelectDay(d)}
+            onClick={(e) => dayEvents.length && onSelectDay(d, e.currentTarget)}
             >
               <div style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -153,15 +153,22 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                {dayEvents.slice(0, 2).map(e => (
-                  <MonthEventPill key={e.id} event={e} onClick={ev => { ev.stopPropagation(); onSelectEvent(e) }} />
-                ))}
-                {dayEvents.length > 2 && (
-                  <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, padding: "2px 4px" }}>
-                    +{dayEvents.length - 2} more
-                  </div>
-                )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minHeight: 0 }}>
+                {dayEvents.length === 1
+                  ? <MonthEventPill event={dayEvents[0]} onClick={ev => { ev.stopPropagation(); onSelectEvent(dayEvents[0], ev.currentTarget) }} />
+                  : <>
+                      {dayEvents.slice(0, 2).map(e => (
+                        <MonthEventThinBar key={e.id} event={e} onClick={ev => { ev.stopPropagation(); onSelectEvent(e, ev.currentTarget) }} />
+                      ))}
+                      {dayEvents.length > 2 && (
+                        <div
+                          onClick={(ev) => { ev.stopPropagation(); onSelectDay(d, ev.currentTarget) }}
+                          style={{ fontSize: 11, color: "var(--rdsw-blue)", fontWeight: 800, padding: "1px 4px", cursor: "pointer", letterSpacing: "0.01em" }}>
+                          +{dayEvents.length - 2} more
+                        </div>
+                      )}
+                    </>
+                }
               </div>
             </div>
           )
@@ -173,10 +180,9 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
 
 const MonthEventPill = ({ event, onClick }) => {
   const style = eventStyle(event)
-  const venue = (event.location || "").split(",")[0].trim()
   return (
     <div onClick={onClick} style={{
-      display: "flex", flexDirection: "column", gap: 1,
+      display: "flex", flexDirection: "column", gap: 2,
       padding: "5px 7px",
       cursor: "pointer",
       borderLeft: `3px solid ${style.dot}`,
@@ -197,20 +203,38 @@ const MonthEventPill = ({ event, onClick }) => {
       </div>
       <div style={{
         fontSize: 12, fontWeight: 700, color: "var(--ink)",
-        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+        display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
         overflow: "hidden", wordBreak: "break-word",
       }}>
         {event.name}
       </div>
-      {venue && (
-        <div style={{
-          fontSize: 10, fontWeight: 600, color: "var(--muted)",
-          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-          marginTop: 1,
-        }}>
-          {venue}
-        </div>
-      )}
+    </div>
+  )
+}
+
+const MonthEventThinBar = ({ event, onClick }) => {
+  const style = eventStyle(event)
+  return (
+    <div onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 6,
+      padding: "3px 6px",
+      borderLeft: `3px solid ${style.dot}`,
+      background: style.soft,
+      cursor: "pointer",
+      minWidth: 0, overflow: "hidden",
+      lineHeight: 1.2,
+      transition: "transform 120ms",
+    }}
+    onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
+    onMouseLeave={e => e.currentTarget.style.transform = ""}
+    >
+      <span style={{ fontSize: 10, fontWeight: 800, color: style.deep, whiteSpace: "nowrap", flexShrink: 0 }}>
+        {fmtTime(event.start_time)}
+      </span>
+      <span style={{
+        fontSize: 11, fontWeight: 700, color: "var(--ink)",
+        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
+      }}>{event.name}</span>
     </div>
   )
 }
@@ -272,12 +296,39 @@ const MonthViewMobile = ({ cursor, events, days, onSelectEvent }) => {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {dayEvents.map(e => <EventCard key={e.id} event={e} variant="compact" onClick={() => onSelectEvent(e)} />)}
+            {dayEvents.map(e => <EventCard key={e.id} event={e} variant="compact" onClick={(el) => onSelectEvent(e, el)} />)}
           </div>
         )}
       </div>
     </div>
   )
+}
+
+// ──────────────────────── Week-event overlap layout ────────────────────────
+function toMin(t) { const [h, m] = t.split(":").map(Number); return h * 60 + m }
+
+function layoutWeekEvents(events) {
+  const items = [...events]
+    .sort((a, b) => toMin(a.start_time) - toMin(b.start_time))
+    .map(e => ({ event: e, start: toMin(e.start_time), end: toMin(e.end_time), col: 0, totalCols: 1 }))
+
+  for (let i = 0; i < items.length; i++) {
+    const used = new Set()
+    for (let j = 0; j < i; j++) {
+      if (items[j].start < items[i].end && items[j].end > items[i].start) used.add(items[j].col)
+    }
+    let col = 0
+    while (used.has(col)) col++
+    items[i].col = col
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const maxCol = items.reduce((mx, r) =>
+      (r.start < items[i].end && r.end > items[i].start) ? Math.max(mx, r.col) : mx, 0)
+    items[i].totalCols = maxCol + 1
+  }
+
+  return items
 }
 
 // ──────────────────────── Week view ────────────────────────
@@ -311,7 +362,7 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
                 {DOW_SHORT[d.getDay()]}
               </div>
               <div style={{
-                fontSize: isMobile ? 16 : 22, fontWeight: 900, color: isToday ? "var(--rdsw-blue-dark)" : "var(--ink)",
+                fontSize: isMobile ? 16 : 22, fontWeight: 900,
                 letterSpacing: "-0.02em", marginTop: 2,
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 width: isToday ? (isMobile ? 26 : 32) : "auto", height: isToday ? (isMobile ? 26 : 32) : "auto",
@@ -345,12 +396,12 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
                 {hours.map(h => (
                   <div key={h} style={{ height: ROW_H, borderBottom: "1px dashed var(--line-2)" }} />
                 ))}
-                {dEvents.map(e => {
+                {layoutWeekEvents(dEvents).map(({ event: e, col, totalCols }) => {
                   const [sh, sm] = e.start_time.split(":").map(Number)
                   const top = ((sh - HOUR_START) + sm/60) * ROW_H
                   const height = Math.max(durationHours(e.start_time, e.end_time) * ROW_H - 2, 26)
                   return (
-                    <WeekBlock key={e.id} event={e} top={top} height={height} isMobile={isMobile} onClick={() => onSelectEvent(e)} />
+                    <WeekBlock key={e.id} event={e} top={top} height={height} col={col} totalCols={totalCols} isMobile={isMobile} onClick={(el) => onSelectEvent(e, el)} />
                   )
                 })}
               </div>
@@ -362,11 +413,13 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
   )
 }
 
-const WeekBlock = ({ event, top, height, isMobile, onClick }) => {
+const WeekBlock = ({ event, top, height, col, totalCols, isMobile, onClick }) => {
   const style = eventStyle(event)
+  const L = `calc(${col / totalCols * 100}% + 2px)`
+  const R = `calc(${(totalCols - col - 1) / totalCols * 100}% + 2px)`
   return (
-    <div onClick={onClick} style={{
-      position: "absolute", top, left: 2, right: 2, height,
+    <div onClick={(e) => onClick(e.currentTarget)} style={{
+      position: "absolute", top, left: L, right: R, height,
       background: style.soft, borderLeft: `3px solid ${style.dot}`,
       padding: isMobile ? "3px 4px" : "5px 6px",
       cursor: "pointer", overflow: "hidden",
@@ -389,7 +442,6 @@ const WeekBlock = ({ event, top, height, isMobile, onClick }) => {
 // ──────────────────────── List view ────────────────────────
 export const ListView = ({ device, events, onSelectEvent, cardVariant }) => {
   const isMobile = device === "mobile"
-  // Group by date
   const groups = {}
   events.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e) })
   const sortedDates = Object.keys(groups).sort()
@@ -433,7 +485,7 @@ export const ListView = ({ device, events, onSelectEvent, cardVariant }) => {
               opacity: isPast ? 0.6 : 1,
             }}>
               {groups[date].map(e => (
-                <EventCard key={e.id} event={e} variant={cardVariant} onClick={() => onSelectEvent(e)} />
+                <EventCard key={e.id} event={e} variant={cardVariant} onClick={(el) => onSelectEvent(e, el)} />
               ))}
             </div>
           </div>
@@ -452,7 +504,7 @@ export const EventCard = ({ event, variant = "standard", onClick }) => {
 }
 
 const EventCardCompact = ({ event, style, onClick }) => (
-  <div onClick={onClick} style={{
+  <div onClick={(e) => onClick(e.currentTarget)} style={{
     display: "flex", alignItems: "center", gap: 14, padding: "12px 14px",
     background: "var(--paper)", border: "1px solid var(--line)",
     borderLeft: `3px solid ${style.dot}`,
@@ -477,7 +529,7 @@ const EventCardCompact = ({ event, style, onClick }) => (
 )
 
 const EventCardStandard = ({ event, style, onClick }) => (
-  <div onClick={onClick} style={{
+  <div onClick={(e) => onClick(e.currentTarget)} style={{
     background: "var(--paper)", border: "1px solid var(--line)",
     padding: 18, cursor: "pointer",
     display: "flex", flexDirection: "column", gap: 10,
@@ -506,7 +558,7 @@ const EventCardStandard = ({ event, style, onClick }) => (
 )
 
 const EventCardVisual = ({ event, style, onClick }) => (
-  <div onClick={onClick} style={{
+  <div onClick={(e) => onClick(e.currentTarget)} style={{
     display: "flex", background: "var(--paper)", border: "1px solid var(--line)",
     cursor: "pointer", overflow: "hidden",
     transition: "transform 120ms, box-shadow 120ms",
