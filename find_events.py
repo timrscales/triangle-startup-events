@@ -196,7 +196,7 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
     if re.search(r"\bworkshop\b|\bhands.on\b", text, re.I):
         tags.append("Workshop")
     if re.search(r"\bai\b|artificial intelligence|machine learning", text, re.I):
-        tags.append("AI "AI & data" Data")
+        tags.append("AI & Data")
 
     return {
         "name": name,
@@ -452,7 +452,7 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
 
         tags = ["Networking", "Community"]
         if re.search(r"\bai\b|artificial intelligence|machine learning", description, re.I):
-            tags.append("AI "AI & data" Data")
+            tags.append("AI & Data")
         if re.search(r"\bfundrais", description, re.I):
             tags.append("Fundraising")
         if re.search(r"\bpitch\b|\bpitching\b", description, re.I):
@@ -788,7 +788,7 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
             if re.search(r"\bnetwork\b", title, re.I):
                 tags.append("Networking")
             if re.search(r"\bai\b|artificial intelligence", title, re.I):
-                tags.append("AI "AI & data" Data")
+                tags.append("AI & Data")
             if re.search(r"\bdemo\b", title, re.I):
                 tags.append("Demo Day")
 
