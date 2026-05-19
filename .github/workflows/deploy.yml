@@ -42,64 +42,97 @@ jobs:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         run: |
           python3 - <<'PYEOF'
-          import json, os, requests
+          import json, os, pathlib, requests
 
           API_KEY = os.environ["AIRTABLE_API_KEY"]
           BASE_ID = "apprt7MFT8PcVhFY4"
-          TABLE   = "Events"
-          URL     = f"https://api.airtable.com/v0/{BASE_ID}/{TABLE}"
-
           headers = {"Authorization": f"Bearer {API_KEY}"}
-          params  = {
+
+          def fetch_all(table, params=None):
+              url = f"https://api.airtable.com/v0/{BASE_ID}/{table}"
+              p = dict(params or {})
+              records = []
+              while True:
+                  resp = requests.get(url, headers=headers, params=p, timeout=30)
+                  resp.raise_for_status()
+                  data = resp.json()
+                  records.extend(data.get("records", []))
+                  offset = data.get("offset")
+                  if not offset:
+                      break
+                  p["offset"] = offset
+              return records
+
+          # ── Organizations ──────────────────────────────────────────────
+          orgs_by_id = {}   # rec_id -> org name
+          org_profiles = {} # org name -> profile dict
+          for r in fetch_all("Organizations"):
+              f = r.get("fields", {})
+              name = f.get("Organization Name", "").strip()
+              if not name:
+                  continue
+              orgs_by_id[r["id"]] = name
+              org_profiles[name] = {
+                  "description": f.get("Description", ""),
+                  "website":     f.get("Website", ""),
+                  "address":     f.get("Address", ""),
+                  "logo":        None,
+              }
+          print(f"Loaded {len(org_profiles)} organization(s)")
+
+          def resolve_org(field_val):
+              """Linked record field returns a list of rec IDs; resolve to name."""
+              if isinstance(field_val, list) and field_val:
+                  return orgs_by_id.get(field_val[0], "")
+              if isinstance(field_val, str):
+                  return field_val
+              return ""
+
+          # ── Events ────────────────────────────────────────────────────
+          event_records = fetch_all("Events", {
               "filterByFormula": "{Approved}=TRUE()",
               "sort[0][field]": "Date",
               "sort[0][direction]": "asc",
-          }
-
-          records = []
-          while True:
-              resp = requests.get(URL, headers=headers, params=params, timeout=30)
-              resp.raise_for_status()
-              data = resp.json()
-              records.extend(data.get("records", []))
-              offset = data.get("offset")
-              if not offset:
-                  break
-              params["offset"] = offset
+          })
 
           events = []
-          for r in records:
+          for r in event_records:
               f = r.get("fields", {})
               events.append({
+                  "id":            r["id"],
                   "name":          f.get("Name", ""),
                   "date":          f.get("Date", ""),
                   "friendly_date": f.get("Friendly Date", ""),
-                  "location":      f.get("Location", ""),
-                  "description":   f.get("Description", ""),
-                  "topic_tags":    f.get("Topic Tags", []),
-                  "source_url":    f.get("Source URL", ""),
-                  "organizer":     f.get("Organizer", ""),
                   "start_time":    f.get("Start Time", ""),
                   "end_time":      f.get("End Time", ""),
+                  "location":      f.get("Location", ""),
+                  "city":          f.get("City", ""),
+                  "description":   f.get("Description", ""),
+                  "event_type":    f.get("Event Type", ""),
+                  "topic_tags":    f.get("Topic Tags", []),
+                  "source_url":    f.get("Source URL", ""),
+                  "host":          resolve_org(f.get("Organizer")),
+                  "editors_pick":  bool(f.get("Editors Pick", False)),
               })
+          print(f"Loaded {len(events)} approved event(s)")
 
-          # Serialize and escape </script> to prevent tag injection
-          json_str = json.dumps(events, ensure_ascii=False)
-          json_str = json_str.replace("</", "<\\/")
+          def safe_json(obj):
+              s = json.dumps(obj, ensure_ascii=False)
+              return s.replace("</", "<\\/")
 
-          import glob, re, pathlib
-
-          # Find the built index.html
           dist_index = pathlib.Path("dist/index.html")
           html = dist_index.read_text(encoding="utf-8")
 
           if "__EVENTS_JSON__" not in html:
               raise RuntimeError("Placeholder __EVENTS_JSON__ not found in dist/index.html")
+          if "__ORG_PROFILES_JSON__" not in html:
+              raise RuntimeError("Placeholder __ORG_PROFILES_JSON__ not found in dist/index.html")
 
-          html = html.replace("__EVENTS_JSON__", json_str)
+          html = html.replace("__EVENTS_JSON__", safe_json(events))
+          html = html.replace("__ORG_PROFILES_JSON__", safe_json(org_profiles))
           dist_index.write_text(html, encoding="utf-8")
 
-          print(f"Injected {len(events)} approved event(s) into dist/index.html")
+          print("Injection complete.")
           PYEOF
 
       - name: Deploy to GitHub Pages
