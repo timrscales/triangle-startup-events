@@ -156,53 +156,87 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
     )
   }
 
-  // Desktop: horizontal chip row
+  // Desktop: search overlay + filter sheet (same pattern as mobile)
   return (
-    <div style={{ borderBottom: "1px solid var(--line)", background: "var(--paper)", padding: "12px 28px" }}>
-      {searchEl && <div style={{ marginBottom: 10 }}>{searchEl}</div>}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--muted)", flexShrink: 0 }}>Filter by</span>
-        {cities.map(c => {
-          const active = filters.cities.includes(c)
-          return (
-            <button key={c} onClick={() => toggleCity(c)} style={{
-              display: "inline-flex", alignItems: "center",
-              padding: "5px 10px", fontSize: 11, fontWeight: 700,
-              fontFamily: "inherit", cursor: "pointer",
-              background: active ? "var(--ink)" : "var(--paper-2)",
-              color: active ? "#fff" : "var(--ink-2)",
-              border: `1px solid ${active ? "var(--ink)" : "var(--line)"}`,
-              whiteSpace: "nowrap", transition: "all 100ms", flexShrink: 0,
-            }}>{c}</button>
-          )
-        })}
-        {cities.length > 0 && <span style={{ width: 1, height: 14, background: "var(--line-2)", flexShrink: 0, alignSelf: "center" }} />}
-        {tags.map(({ tag }) => {
-          const active = activeTags.includes(tag)
-          const c = tagStyle(tag)
-          return (
-            <button key={tag} onClick={() => toggle(tag)} style={{
-              display: "inline-flex", alignItems: "center", gap: 5,
-              padding: "5px 10px", fontSize: 11, fontWeight: 700,
-              fontFamily: "var(--font-mono)", cursor: "pointer",
-              background: active ? c.fg : "var(--paper-2)",
-              color: active ? "#fff" : "var(--ink-2)",
-              border: `1.5px solid ${active ? c.fg : "var(--line)"}`,
-              whiteSpace: "nowrap", transition: "all 100ms", flexShrink: 0,
+    <>
+      {searchOpen && (
+        <div style={{ borderBottom: "1px solid var(--line)", background: "var(--paper)", padding: "8px 28px" }}>
+          {searchEl}
+        </div>
+      )}
+      {filterOpen && (
+        <>
+          <div onClick={() => setFilterOpen(false)} style={{
+            position: "absolute", inset: 0, background: "rgba(10,10,10,0.45)", zIndex: 40,
+            animation: "tseScrim 180ms var(--ease-out)",
+          }} />
+          <div style={{
+            position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 41,
+            background: "var(--paper)", maxHeight: "82vh",
+            display: "flex", flexDirection: "column",
+            boxShadow: "var(--shadow-3)",
+            animation: "tseSlideUp 220ms var(--ease-out)",
+          }}>
+            <div style={{
+              padding: "14px 28px 12px", borderBottom: "1px solid var(--line)",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              flexShrink: 0,
             }}>
-              #{tag.replace(/\s+/g, "")}
-            </button>
-          )
-        })}
-        {(filters.topics.length > 0 || filters.cities.length > 0) && (
-          <button onClick={clearAll} style={{
-            background: "transparent", border: 0, color: "var(--muted)",
-            fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-            textDecoration: "underline", textUnderlineOffset: 3, padding: "6px 4px", flexShrink: 0,
-          }}>Clear</button>
-        )}
-      </div>
-    </div>
+              <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)" }}>Filters</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {totalActive > 0 && (
+                  <button onClick={clearAll} style={{
+                    background: "transparent", border: 0, color: "var(--muted)",
+                    fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                    textDecoration: "underline", textUnderlineOffset: 3, padding: 0,
+                  }}>Clear all</button>
+                )}
+                <button onClick={() => setFilterOpen(false)} style={iconBtn(false)}><XIcon /></button>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 4px" }}>
+              <FilterSection title="Topics">
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {tags.map(({ tag }) => {
+                    const active = activeTags.includes(tag)
+                    const c = tagStyle(tag)
+                    return (
+                      <button key={tag} onClick={() => toggle(tag)} style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "6px 10px", fontSize: 11, fontWeight: 700,
+                        fontFamily: "var(--font-mono)", cursor: "pointer",
+                        background: active ? c.fg : "var(--paper-2)",
+                        color: active ? "#fff" : "var(--ink-2)",
+                        border: `1.5px solid ${active ? c.fg : "var(--line)"}`,
+                        whiteSpace: "nowrap", transition: "all 100ms",
+                      }}>
+                        {active && <CheckMarkIcon />}
+                        #{tag.replace(/\s+/g, "")}
+                      </button>
+                    )
+                  })}
+                </div>
+              </FilterSection>
+              <FilterSection title="City">
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {cities.map(c => <FilterChip key={c} label={c} active={filters.cities.includes(c)} onToggle={() => toggleCity(c)} />)}
+                </div>
+              </FilterSection>
+            </div>
+            <div style={{ padding: "12px 28px", borderTop: "1px solid var(--line)", flexShrink: 0 }}>
+              <button onClick={() => setFilterOpen(false)} style={{
+                width: "100%", padding: "14px", fontFamily: "inherit",
+                fontSize: 14, fontWeight: 800, letterSpacing: "0.01em",
+                background: "var(--ink)", color: "#fff",
+                border: 0, cursor: "pointer",
+              }}>
+                {totalActive > 0 ? `Show ${resultCount} result${resultCount !== 1 ? "s" : ""}` : "Done"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   )
 }
 

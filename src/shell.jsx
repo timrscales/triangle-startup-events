@@ -194,8 +194,31 @@ export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, 
         </div>
       </div>
 
-      {/* View toggle */}
-      <ViewToggle view={view} setView={setView} isMobile={false} />
+      {/* View toggle + Filters */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <ViewToggle view={view} setView={setView} isMobile={false} />
+        <button
+          onClick={() => setFilterOpen(true)}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "0 12px", height: 36, fontSize: 12, fontWeight: 800,
+            fontFamily: "inherit", cursor: "pointer",
+            background: totalActiveFilters > 0 ? "var(--ink)" : "var(--paper-2)",
+            color: totalActiveFilters > 0 ? "#fff" : "var(--ink-2)",
+            border: `1px solid ${totalActiveFilters > 0 ? "var(--ink)" : "var(--line)"}`,
+          }}>
+          <FunnelIcon />
+          Filters
+          {totalActiveFilters > 0 && (
+            <span style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 16, height: 16, borderRadius: "50%",
+              background: "var(--rdsw-blue)", color: "#fff",
+              fontSize: 9, fontWeight: 900, letterSpacing: 0,
+            }}>{totalActiveFilters}</span>
+          )}
+        </button>
+      </div>
 
       {/* Right: search + submit */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
