@@ -2,6 +2,7 @@
 """Find free startup events in the NC Triangle area and sync to Airtable."""
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -20,6 +21,7 @@ AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = "apprt7MFT8PcVhFY4"
 AIRTABLE_TABLE_NAME = "Events"
 AIRTABLE_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+AIRTABLE_ORGS_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Organizations"
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -910,6 +912,74 @@ def get_existing_events() -> set[tuple[str, str]]:
     return existing
 
 
+def load_orgs() -> dict[str, str]:
+    """Return {normalized_org_name: record_id} for all rows in Organizations."""
+    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+    params: dict = {}
+    orgs: dict[str, str] = {}
+    while True:
+        resp = requests.get(AIRTABLE_ORGS_URL, headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        for record in data.get("records", []):
+            name = record.get("fields", {}).get("Organization Name", "").strip()
+            if name:
+                orgs[name.lower()] = record["id"]
+        offset = data.get("offset")
+        if not offset:
+            break
+        params["offset"] = offset
+    return orgs
+
+
+def create_org_stub(name: str) -> str:
+    """Create a minimal org record and return its record ID."""
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    resp = requests.post(
+        AIRTABLE_ORGS_URL,
+        headers=headers,
+        json={"fields": {"Organization Name": name}},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    rec_id = resp.json()["id"]
+    print(f"  NEW ORG: created stub for {name!r} ({rec_id})")
+    return rec_id
+
+
+def resolve_org(host: str, orgs: dict[str, str], fuzzy_threshold: float = 0.82) -> str | None:
+    """Return an Airtable record ID for host, creating a stub if no match found.
+
+    Tries exact match first, then fuzzy. Creates a stub org record if nothing
+    is close enough, so unrecognised orgs surface in Airtable for manual review.
+    Returns None only if host is empty.
+    """
+    host = host.strip()
+    if not host:
+        return None
+
+    key = host.lower()
+
+    # 1. Exact match
+    if key in orgs:
+        return orgs[key]
+
+    # 2. Fuzzy match
+    best = difflib.get_close_matches(key, orgs.keys(), n=1, cutoff=fuzzy_threshold)
+    if best:
+        matched_name = best[0]
+        print(f"  ORG MATCH (fuzzy): {host!r} → {matched_name!r}")
+        return orgs[matched_name]
+
+    # 3. No match — create a stub so the name lands in Airtable
+    rec_id = create_org_stub(host)
+    orgs[key] = rec_id  # cache so duplicates within this run don't create more stubs
+    return rec_id
+
+
 def format_friendly_date(date_str: str, start_time: str, end_time: str) -> str:
     """Return a human-friendly date string, e.g. 'Wednesday, May 20 from 1pm-5pm'."""
     if not date_str:
@@ -942,8 +1012,8 @@ def format_friendly_date(date_str: str, start_time: str, end_time: str) -> str:
     return date_part
 
 
-def create_event_record(event: dict) -> dict:
-    """Write a single event to Airtable."""
+def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
+    """Write a single event to Airtable, linking Organizer as a record ID."""
     headers = {
         "Authorization": f"Bearer {AIRTABLE_API_KEY}",
         "Content-Type": "application/json",
@@ -956,9 +1026,9 @@ def create_event_record(event: dict) -> dict:
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
     }
-    host = str(event.get("host", "")).strip()
-    if host:
-        fields["Organizer"] = host
+    org_rec_id = resolve_org(event.get("host", ""), orgs)
+    if org_rec_id:
+        fields["Organizer"] = [org_rec_id]  # linked record field requires an array
     end_time = str(event.get("end_time", "")).strip()
     if end_time:
         fields["End Time"] = end_time
@@ -1110,6 +1180,10 @@ def main():
     for ev in all_events:
         ev["name"] = _strip_emojis(ev["name"])
 
+    print("Fetching organizations from Airtable…")
+    orgs = load_orgs()
+    print(f"  {len(orgs)} organization(s) loaded.")
+
     print("Fetching existing Airtable events…")
     existing = get_existing_events()
     print(f"Airtable has {len(existing)} existing event(s).")
@@ -1132,7 +1206,7 @@ def main():
             continue
 
         try:
-            create_event_record(event)
+            create_event_record(event, orgs)
             print(f"  ADDED: {event['name']} on {event['date']}")
             existing.add(key)
             added += 1
