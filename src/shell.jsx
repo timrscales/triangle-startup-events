@@ -48,9 +48,22 @@ export function hashIndex(str, mod) {
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
   return h % mod
 }
+
+// Fixed city→color mapping so the calendar builds a learnable visual grammar.
+export const CITY_COLORS = {
+  "Raleigh":     ACCENT_PALETTE[4], // cyan   — brand/capital
+  "Durham":      ACCENT_PALETTE[0], // amber  — warm, energetic
+  "Chapel Hill": ACCENT_PALETTE[2], // violet — academic
+  "RTP":         ACCENT_PALETTE[3], // mint   — tech/research
+}
+
 export function eventStyle(event) {
-  const primary = (event.topic_tags && event.topic_tags[0]) || event.event_type || ""
-  return ACCENT_PALETTE[hashIndex(primary.toLowerCase(), ACCENT_PALETTE.length)]
+  return CITY_COLORS[event.city]
+    || ACCENT_PALETTE[hashIndex((event.city || "").toLowerCase(), ACCENT_PALETTE.length)]
+}
+export function cityStyle(city) {
+  return CITY_COLORS[city]
+    || ACCENT_PALETTE[hashIndex((city || "").toLowerCase(), ACCENT_PALETTE.length)]
 }
 export function tagStyle(tag) {
   return TAG_PALETTE[hashIndex(tag.toLowerCase(), TAG_PALETTE.length)]

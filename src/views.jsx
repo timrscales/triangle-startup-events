@@ -211,7 +211,9 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
   const isMobile = device === "mobile"
   const first = startOfMonth(cursor)
   const gridStart = addDays(first, -first.getDay())
-  const days = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i))
+  const lastOfMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)
+  const weeksNeeded = Math.ceil((lastOfMonth - gridStart) / (7 * 24 * 60 * 60 * 1000) + 1/7)
+  const days = Array.from({ length: weeksNeeded * 7 }, (_, i) => addDays(gridStart, i))
 
   if (isMobile) return <MonthViewMobile cursor={cursor} events={events} days={days} onSelectEvent={onSelectEvent} onSelectDay={onSelectDay} />
 
@@ -312,7 +314,7 @@ const MonthEventPill = ({ event, onClick }) => {
       </div>
       <div style={{
         fontSize: 12, fontWeight: 700, color: "var(--ink)",
-        display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
+        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
         overflow: "hidden", wordBreak: "break-word",
       }}>
         {event.name}
@@ -369,7 +371,7 @@ const MonthViewMobile = ({ cursor, events, days, onSelectEvent }) => {
             const dEvents = events.filter(e => sameDay(parseDate(e.date), d))
             return (
               <button key={i} onClick={() => setSelectedDay(d)} style={{
-                aspectRatio: "1/1",
+                height: 36,
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 background: isSelected ? "var(--ink)" : "transparent",
                 color: isSelected ? "#fff" : (isToday ? "var(--rdsw-blue-dark)" : (inMonth ? "var(--ink-2)" : "var(--muted)")),
@@ -555,8 +557,13 @@ const WeekBlock = ({ event, top, height, col, totalCols, isMobile, onClick }) =>
 // ──────────────────────── List view ────────────────────────
 export const ListView = ({ device, events, onSelectEvent, cardVariant }) => {
   const isMobile = device === "mobile"
+  const [showPast, setShowPast] = useState(false)
+  const today = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate())
+  const pastEvents = events.filter(e => parseDate(e.date) < today)
+  const futureEvents = events.filter(e => parseDate(e.date) >= today)
+  const visibleEvents = showPast ? events : futureEvents
   const groups = {}
-  events.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e) })
+  visibleEvents.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e) })
   const sortedDates = Object.keys(groups).sort()
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px" : "20px 28px 40px" }}>
@@ -604,6 +611,18 @@ export const ListView = ({ device, events, onSelectEvent, cardVariant }) => {
           </div>
         )
       })}
+      {pastEvents.length > 0 && (
+        <div style={{ textAlign: "center", padding: "8px 0 24px" }}>
+          <button onClick={() => setShowPast(p => !p)} style={{
+            fontFamily: "inherit", fontSize: 12, fontWeight: 800,
+            color: "var(--ink-3)", background: "transparent",
+            border: "1px solid var(--line)", padding: "8px 16px",
+            cursor: "pointer", letterSpacing: "0.04em",
+          }}>
+            {showPast ? "Hide past events" : `Show ${pastEvents.length} past event${pastEvents.length !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -618,32 +637,29 @@ export const EventCard = ({ event, variant = "standard", onClick }) => {
 
 const EventCardCompact = ({ event, style, onClick }) => (
   <div onClick={(e) => onClick(e.currentTarget)} style={{
-    display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+    display: "flex", alignItems: "center", gap: 14, padding: "12px 14px",
     background: "var(--paper)", border: "1px solid var(--line)",
     borderLeft: `3px solid ${style.dot}`,
     cursor: "pointer", transition: "transform 120ms, box-shadow 120ms",
   }}
   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-2)" }}
   onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "" }}>
-    <div style={{ width: 72, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: style.deep, lineHeight: 1.2 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, width: 72, flexShrink: 0 }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: style.deep, whiteSpace: "nowrap" }}>
         {fmtTime(event.start_time)}
       </div>
-      {event.city && (
-        <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, lineHeight: 1.2 }}>
-          {event.city}
-        </div>
-      )}
-    </div>
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        {event.name}
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", whiteSpace: "nowrap" }}>
+        {event.city}
       </div>
-      {event.host && (
-        <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {event.host}
-        </div>
-      )}
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+        <span style={{ fontSize: 15, fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.005em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.name}</span>
+        {event.editors_pick && <PickBadge />}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {event.host}
+      </div>
     </div>
     <ChevronRight />
   </div>
