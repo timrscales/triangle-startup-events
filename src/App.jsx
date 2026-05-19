@@ -725,7 +725,7 @@ const Footer = ({ device }) => {
       gap: 8, fontSize: 12, color: "var(--muted)"
     }}>
       <div>
-        Curated by <a href="https://timscales.com" target="_blank" style={{ color: "var(--ink-2)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }}>Tim Scales</a> · All events are free & in-person.
+        Curated by <a href="https://timscales.com" target="_blank" style={{ color: "var(--ink-2)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }}>Tim Scales</a> · All events are free, in-person in the Triangle, and designed for startup founders and their teams.
       </div>
       <div style={{ display: "flex", gap: 14 }}>
         <a href="#" style={{ color: "var(--ink-3)", fontWeight: 600, textDecoration: "none" }}></a>

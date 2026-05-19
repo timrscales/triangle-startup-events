@@ -138,18 +138,18 @@ export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, 
 
 }
 
-export const Logomark = ({ size = 36 }) =>
-<div style={{
-  width: size, height: size, background: "var(--rdsw-blue)",
-  display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr",
-  gap: Math.max(1, size * 0.06), padding: Math.max(2, size * 0.16),
-  boxSizing: "border-box"
-}}>
-    <div style={{ background: "var(--rdsw-blue-dark)" }} />
-    <div />
-    <div style={{ background: "var(--rdsw-blue-dark)" }} />
-    <div style={{ background: "var(--rdsw-blue-dark)" }} />
-  </div>
+export const Logomark = ({ size = 36 }) => {
+  const p = Math.max(2, size * 0.16);
+  const gap = Math.max(1, size * 0.06);
+  const b = (size - p * 2 - gap) / 2;
+  return (
+    <div style={{ width: size, height: size, background: "var(--rdsw-blue)", position: "relative", boxSizing: "border-box" }}>
+      <div style={{ position: "absolute", top: p, left: (size - b) / 2, width: b, height: b, background: "var(--rdsw-blue-dark)" }} />
+      <div style={{ position: "absolute", top: p + b + gap, left: p, width: b, height: b, background: "var(--rdsw-blue-dark)" }} />
+      <div style={{ position: "absolute", top: p + b + gap, left: p + b + gap, width: b, height: b, background: "var(--rdsw-blue-dark)" }} />
+    </div>
+  );
+};
 
 
 export const ViewToggle = ({ view, setView, isMobile }) => {
