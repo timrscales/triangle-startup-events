@@ -1,17 +1,50 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import {
   TODAY, MONTHS, DOW_SHORT, DOW_FULL,
   parseDate, sameDay, addDays, startOfWeek, startOfMonth,
   fmtTime, fmtTimeRange, durationHours,
-  eventStyle, tagStyle, topTags,
-  iconBtn, XIcon, PinIcon, ChevronRight, StarIcon,
+  eventStyle, tagStyle, topTags, uniqueCities,
+  iconBtn, XIcon, PinIcon, ChevronRight, StarIcon, FunnelIcon,
 } from './shell.jsx'
 
+// ──────────────────────── Filter helpers ────────────────────────
+const FilterSection = ({ title, children }) => (
+  <div style={{ marginBottom: 20 }}>
+    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 8 }}>
+      {title}
+    </div>
+    {children}
+  </div>
+)
+
+const FilterChip = ({ label, active, onToggle }) => (
+  <button onClick={onToggle} style={{
+    display: "inline-flex", alignItems: "center", gap: 5,
+    padding: "7px 12px", fontSize: 12, fontWeight: 700,
+    fontFamily: "inherit", cursor: "pointer",
+    background: active ? "var(--ink)" : "var(--paper-2)",
+    color: active ? "#fff" : "var(--ink-2)",
+    border: `1px solid ${active ? "var(--ink)" : "var(--line)"}`,
+    whiteSpace: "nowrap", transition: "all 100ms",
+  }}>
+    {active && <CheckMarkIcon />}
+    {label}
+  </button>
+)
+
+const CheckMarkIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+)
+
 // ──────────────────────── Filter bar ────────────────────────
-export const FilterBar = ({ device, filters, setFilters, search, setSearch, searchOpen, setSearchOpen, resultCount, view, events }) => {
+export const FilterBar = ({ device, filters, setFilters, search, setSearch, searchOpen, setSearchOpen, resultCount, view, events, filterOpen, setFilterOpen }) => {
   const isMobile = device === "mobile"
-  const tags = useMemo(() => topTags(events, 8), [events])
+  const tags = useMemo(() => topTags(events, 12), [events])
+  const cities = useMemo(() => uniqueCities(events), [events])
   const activeTags = filters.topics.map(t => t.toLowerCase())
+  const totalActive = filters.cities.length + filters.types.length + filters.audiences.length + filters.topics.length
 
   const toggle = (val) => {
     setFilters(f => ({
@@ -21,77 +54,152 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
         : [...f.topics, val],
     }))
   }
-  const clearAll = () => setFilters({ cities: [], types: [], audiences: [], topics: [] })
+  const clearAll   = () => setFilters({ cities: [], types: [], audiences: [], topics: [] })
+  const toggleCity = (v) => setFilters(f => ({ ...f, cities: f.cities.includes(v) ? f.cities.filter(x => x !== v) : [...f.cities, v] }))
 
+  const searchEl = searchOpen ? (
+    <div style={{ display: "flex", gap: 8 }}>
+      <input
+        autoFocus type="text" value={search} onChange={e => setSearch(e.target.value)}
+        placeholder="Search events, hosts, locations…"
+        style={{ flex: 1, padding: "10px 14px", fontSize: 14, fontFamily: "inherit", border: "1px solid var(--line)", outline: "none", color: "var(--ink)" }}
+        onFocus={e => e.target.style.borderColor = "var(--rdsw-blue)"}
+        onBlur={e => e.target.style.borderColor = "var(--line)"}
+      />
+      <button onClick={() => { setSearch(""); setSearchOpen(false) }} style={iconBtn(isMobile)}><XIcon /></button>
+    </div>
+  ) : null
+
+  if (isMobile) {
+    return (
+      <>
+        {searchOpen && (
+          <div style={{ borderBottom: "1px solid var(--line)", background: "var(--paper)", padding: "8px 12px" }}>
+            {searchEl}
+          </div>
+        )}
+        {filterOpen && (
+          <>
+            <div onClick={() => setFilterOpen(false)} style={{
+              position: "absolute", inset: 0, background: "rgba(10,10,10,0.45)", zIndex: 40,
+              animation: "tseScrim 180ms var(--ease-out)",
+            }} />
+            <div style={{
+              position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 41,
+              background: "var(--paper)", maxHeight: "82vh",
+              display: "flex", flexDirection: "column",
+              boxShadow: "var(--shadow-3)",
+              animation: "tseSlideUp 220ms var(--ease-out)",
+            }}>
+              <div style={{
+                padding: "14px 16px 12px", borderBottom: "1px solid var(--line)",
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                flexShrink: 0,
+              }}>
+                <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)" }}>Filters</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {totalActive > 0 && (
+                    <button onClick={clearAll} style={{
+                      background: "transparent", border: 0, color: "var(--muted)",
+                      fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                      textDecoration: "underline", textUnderlineOffset: 3, padding: 0,
+                    }}>Clear all</button>
+                  )}
+                  <button onClick={() => setFilterOpen(false)} style={iconBtn(true)}><XIcon /></button>
+                </div>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 4px" }}>
+                <FilterSection title="Topics">
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {tags.map(({ tag }) => {
+                      const active = activeTags.includes(tag)
+                      const c = tagStyle(tag)
+                      return (
+                        <button key={tag} onClick={() => toggle(tag)} style={{
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          padding: "6px 10px", fontSize: 11, fontWeight: 700,
+                          fontFamily: "var(--font-mono)", cursor: "pointer",
+                          background: active ? c.fg : "var(--paper-2)",
+                          color: active ? "#fff" : "var(--ink-2)",
+                          border: `1.5px solid ${active ? c.fg : "var(--line)"}`,
+                          whiteSpace: "nowrap", transition: "all 100ms",
+                        }}>
+                          {active && <CheckMarkIcon />}
+                          #{tag.replace(/\s+/g, "")}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </FilterSection>
+                {cities.length > 0 && (
+                  <FilterSection title="City">
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {cities.map(c => <FilterChip key={c} label={c} active={filters.cities.includes(c)} onToggle={() => toggleCity(c)} />)}
+                    </div>
+                  </FilterSection>
+                )}
+              </div>
+              <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)", flexShrink: 0 }}>
+                <button onClick={() => setFilterOpen(false)} style={{
+                  width: "100%", padding: "14px", fontFamily: "inherit",
+                  fontSize: 14, fontWeight: 800, letterSpacing: "0.01em",
+                  background: "var(--ink)", color: "#fff",
+                  border: 0, cursor: "pointer",
+                }}>
+                  {totalActive > 0 ? `Show ${resultCount} result${resultCount !== 1 ? "s" : ""}` : "Done"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </>
+    )
+  }
+
+  // Desktop: horizontal chip row
   return (
-    <div style={{
-      borderBottom: "1px solid var(--line)",
-      background: "var(--paper)",
-      padding: isMobile ? "10px 12px" : "12px 28px",
-    }}>
-      {searchOpen && (
-        <div style={{ marginBottom: 10, display: "flex", gap: 8 }}>
-          <input
-            autoFocus
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search events, hosts, locations…"
-            style={{
-              flex: 1, padding: "10px 14px", fontSize: 14, fontFamily: "inherit",
-              border: "1px solid var(--line)", outline: "none", color: "var(--ink)",
-            }}
-            onFocus={e => e.target.style.borderColor = "var(--rdsw-blue)"}
-            onBlur={e => e.target.style.borderColor = "var(--line)"}
-          />
-          <button onClick={() => { setSearch(""); setSearchOpen(false) }} style={iconBtn(isMobile)}><XIcon /></button>
-        </div>
-      )}
-      <div style={{
-        display: "flex", alignItems: "center",
-        gap: 8, flexWrap: isMobile ? "nowrap" : "wrap",
-        overflowX: isMobile ? "auto" : "visible",
-        paddingBottom: isMobile ? 2 : 0,
-      }}>
-        <span style={{
-          fontSize: 10, fontWeight: 800, letterSpacing: "0.14em",
-          textTransform: "uppercase", color: "var(--muted)",
-          marginRight: 4, flexShrink: 0,
-        }}>Filter</span>
+    <div style={{ borderBottom: "1px solid var(--line)", background: "var(--paper)", padding: "12px 28px" }}>
+      {searchEl && <div style={{ marginBottom: 10 }}>{searchEl}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--muted)", flexShrink: 0 }}>Filter by</span>
+        {cities.map(c => {
+          const active = filters.cities.includes(c)
+          return (
+            <button key={c} onClick={() => toggleCity(c)} style={{
+              display: "inline-flex", alignItems: "center",
+              padding: "5px 10px", fontSize: 11, fontWeight: 700,
+              fontFamily: "inherit", cursor: "pointer",
+              background: active ? "var(--ink)" : "var(--paper-2)",
+              color: active ? "#fff" : "var(--ink-2)",
+              border: `1px solid ${active ? "var(--ink)" : "var(--line)"}`,
+              whiteSpace: "nowrap", transition: "all 100ms", flexShrink: 0,
+            }}>{c}</button>
+          )
+        })}
+        {cities.length > 0 && <span style={{ width: 1, height: 14, background: "var(--line-2)", flexShrink: 0, alignSelf: "center" }} />}
         {tags.map(({ tag }) => {
           const active = activeTags.includes(tag)
           const c = tagStyle(tag)
           return (
-            <button
-              key={tag}
-              onClick={() => toggle(tag)}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 4,
-                padding: "6px 10px", fontSize: 12, fontWeight: 500,
-                fontFamily: "var(--font-mono)", cursor: "pointer",
-                background: active ? c.fg : c.bg,
-                color: active ? "#fff" : c.fg,
-                border: `1px solid ${active ? c.fg : "transparent"}`,
-                whiteSpace: "nowrap",
-                transition: "background 120ms",
-                flexShrink: 0,
-              }}>
+            <button key={tag} onClick={() => toggle(tag)} style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "5px 10px", fontSize: 11, fontWeight: 700,
+              fontFamily: "var(--font-mono)", cursor: "pointer",
+              background: active ? c.fg : "var(--paper-2)",
+              color: active ? "#fff" : "var(--ink-2)",
+              border: `1.5px solid ${active ? c.fg : "var(--line)"}`,
+              whiteSpace: "nowrap", transition: "all 100ms", flexShrink: 0,
+            }}>
               #{tag.replace(/\s+/g, "")}
             </button>
           )
         })}
-        {filters.topics.length > 0 && (
+        {(filters.topics.length > 0 || filters.cities.length > 0) && (
           <button onClick={clearAll} style={{
             background: "transparent", border: 0, color: "var(--muted)",
             fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-            textDecoration: "underline", textUnderlineOffset: 3, padding: "6px 4px",
-            flexShrink: 0,
+            textDecoration: "underline", textUnderlineOffset: 3, padding: "6px 4px", flexShrink: 0,
           }}>Clear</button>
-        )}
-        {!isMobile && (
-          <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>
-            {resultCount} event{resultCount !== 1 ? "s" : ""}
-          </div>
         )}
       </div>
     </div>
@@ -341,6 +449,10 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
   const hours = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i)
   const ROW_H = isMobile ? 36 : 44
   const GUTTER = isMobile ? 38 : 54
+  const scrollRef = useRef(null)
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = ROW_H
+  }, [])
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
@@ -374,8 +486,8 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
           )
         })}
       </div>
-      {/* Grid (fits without scroll) */}
-      <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+      {/* Scrollable hour grid */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", position: "relative" }}>
         <div style={{ display: "grid", gridTemplateColumns: `${GUTTER}px repeat(7, minmax(0, 1fr))`, position: "relative" }}>
           {/* Hour gutter */}
           <div>

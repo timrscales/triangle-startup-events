@@ -55,6 +55,10 @@ export function eventStyle(event) {
 export function tagStyle(tag) {
   return TAG_PALETTE[hashIndex(tag.toLowerCase(), TAG_PALETTE.length)]
 }
+export function uniqueCities(events) {
+  return [...new Set(events.map(e => e.city).filter(Boolean))].sort()
+}
+
 export function topTags(events, n = 8) {
   const counts = {}
   for (const e of events) {
@@ -73,7 +77,7 @@ export function applyFilters(events, f, search) {
   return events.filter((e) => {
     if (f.cities.length && !f.cities.includes(e.city)) return false
     if (f.types.length && !f.types.includes(e.event_type)) return false
-    if (f.audiences.length && !(e.audience || []).some((a) => f.audiences.includes(a))) return false
+    if (f.audiences.length && !(e.audience || []).some((a) => f.audiences.map(x => x.toLowerCase()).includes(a.toLowerCase()))) return false
     if (f.topics.length && !(e.topic_tags || []).some((t) => f.topics.map((x) => x.toLowerCase()).includes(t.toLowerCase()))) return false
     if (search) {
       const q = search.toLowerCase()
@@ -85,57 +89,110 @@ export function applyFilters(events, f, search) {
 }
 
 // ──────────────────────── small UI atoms ────────────────────────
-export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, setSearchOpen, savedCount }) => {
+export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, setSearchOpen, savedCount, filterOpen, setFilterOpen, totalActiveFilters }) => {
+  const [infoOpen, setInfoOpen] = useState(false)
   const isMobile = device === "mobile"
+
+  if (isMobile) {
+    return (
+      <div style={{ background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+        {/* Row 1: Logo + info + search + submit */}
+        <div style={{ display: "flex", alignItems: "center", padding: "12px 14px 8px", gap: 8 }}>
+          <Logomark size={28} />
+          <span style={{
+            fontSize: 14, fontWeight: 900, letterSpacing: "-0.01em",
+            color: "var(--ink)", flex: 1, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>Triangle Startup Events</span>
+          <button onClick={() => setInfoOpen(v => !v)} aria-label="About this calendar" style={iconBtn(true)}>
+            <InfoIcon />
+          </button>
+          <button onClick={() => setSearchOpen(!searchOpen)} aria-label="Search" style={iconBtn(true)}>
+            <SearchIcon />
+          </button>
+          <button onClick={onSubmit} aria-label="Submit event" style={iconBtn(true)}>
+            <PlusIcon />
+          </button>
+        </div>
+        {/* Row 2: Filters button + view toggle */}
+        <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", alignItems: "stretch" }}>
+          <button
+            onClick={() => setFilterOpen(true)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "0 11px", fontSize: 12, fontWeight: 800,
+              fontFamily: "inherit", cursor: "pointer", flexShrink: 0,
+              background: totalActiveFilters > 0 ? "var(--ink)" : "var(--paper-2)",
+              color: totalActiveFilters > 0 ? "#fff" : "var(--ink-2)",
+              border: `1px solid ${totalActiveFilters > 0 ? "var(--ink)" : "var(--line)"}`,
+            }}>
+            <FunnelIcon />
+            Filters
+            {totalActiveFilters > 0 && (
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 16, height: 16, borderRadius: "50%",
+                background: "var(--rdsw-blue)", color: "#fff",
+                fontSize: 9, fontWeight: 900, letterSpacing: 0,
+              }}>{totalActiveFilters}</span>
+            )}
+          </button>
+          <div style={{ flex: 1 }}>
+            <ViewToggle view={view} setView={setView} isMobile={true} fullWidth={true} />
+          </div>
+        </div>
+        {/* Info popup */}
+        {infoOpen && (
+          <>
+            <div onClick={() => setInfoOpen(false)} style={{ position: "absolute", inset: 0, zIndex: 49 }} />
+            <div style={{
+              position: "absolute", right: 14, top: 98, zIndex: 50,
+              width: 260, background: "var(--paper)",
+              border: "1px solid var(--line)", boxShadow: "var(--shadow-2)",
+              padding: "14px", fontSize: 12, color: "var(--ink-2)", lineHeight: 1.6,
+              animation: "tseFadeScale 120ms var(--ease-out)",
+            }}>
+              Curated by <a href="https://timscales.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--ink)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }}>Tim Scales</a> · All events are free, in-person in the Triangle, and designed for startup founders and their teams.
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: isMobile ? "12px 16px" : "16px 28px",
+      padding: "16px 28px",
       borderBottom: "1px solid var(--line)",
       background: "var(--paper)",
-      gap: isMobile ? 10 : 20,
-      flexWrap: isMobile ? "wrap" : "nowrap"
+      gap: 20,
+      flexWrap: "nowrap",
     }}>
       {/* Logo + title */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-        <Logomark size={isMobile ? 30 : 36} />
+        <Logomark size={36} />
         <div style={{ display: "flex", flexDirection: "column", lineHeight: 1, minWidth: 0 }}>
-          <span style={{ fontSize: isMobile ? 14 : 16, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 16, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)", whiteSpace: "nowrap" }}>
             Triangle Startup Events
           </span>
-          {!isMobile &&
           <span style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, fontWeight: 500 }}>Free, in-person events for founders & their teams in the Raleigh-Durham area
-
           </span>
-          }
         </div>
       </div>
 
       {/* View toggle */}
-      <ViewToggle view={view} setView={setView} isMobile={isMobile} />
+      <ViewToggle view={view} setView={setView} isMobile={false} />
 
       {/* Right: search + submit */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <button
-          onClick={() => setSearchOpen(!searchOpen)}
-          aria-label="Search"
-          style={iconBtn(isMobile)}>
-
+        <button onClick={() => setSearchOpen(!searchOpen)} aria-label="Search" style={iconBtn(false)}>
           <SearchIcon />
         </button>
-        {!isMobile &&
-        <button onClick={onSubmit} style={ctaBtn}>Submit an Event
-
-        </button>
-        }
-        {isMobile &&
-        <button onClick={onSubmit} aria-label="Submit event" style={iconBtn(true)}>
-            <PlusIcon />
-          </button>
-        }
+        <button onClick={onSubmit} style={ctaBtn}>Submit an Event</button>
       </div>
-    </div>)
-
+    </div>
+  )
 }
 
 export const Logomark = ({ size = 36 }) => {
@@ -152,15 +209,17 @@ export const Logomark = ({ size = 36 }) => {
 };
 
 
-export const ViewToggle = ({ view, setView, isMobile }) => {
+export const ViewToggle = ({ view, setView, isMobile, fullWidth }) => {
   const views = ["Month", "Week", "List"]
   return (
     <div style={{
-      display: "inline-flex",
+      display: fullWidth ? "flex" : "inline-flex",
       border: "1px solid var(--line)",
       background: "var(--paper-2)",
       padding: 2,
-      gap: 2
+      gap: 2,
+      width: fullWidth ? "100%" : undefined,
+      boxSizing: "border-box",
     }}>
       {views.map((v) => {
         const active = view === v
@@ -168,6 +227,7 @@ export const ViewToggle = ({ view, setView, isMobile }) => {
           <button key={v}
           onClick={() => setView(v)}
           style={{
+            flex: fullWidth ? 1 : "none",
             padding: isMobile ? "8px 12px" : "8px 18px",
             fontSize: isMobile ? 12 : 13,
             fontWeight: 800,
@@ -181,10 +241,8 @@ export const ViewToggle = ({ view, setView, isMobile }) => {
           }}>
             {v}
           </button>)
-
       })}
     </div>)
-
 }
 
 export const iconBtn = (isMobile) => ({
@@ -234,3 +292,13 @@ export const ExternalIcon = () =>
 
 export const StarIcon = ({ filled }) =>
 <svg width="12" height="12" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><polygon points="12 2 15 8.5 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 9 8.5 12 2" /></svg>
+
+export const FunnelIcon = () =>
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+  </svg>
+
+export const InfoIcon = () =>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" />
+  </svg>

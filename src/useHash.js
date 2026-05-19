@@ -5,6 +5,7 @@ function parseHash() {
   return {
     view:   params.get('view')   || 'List',
     date:   params.get('date')   || null,
+    cities: params.get('cities') ? params.get('cities').split(',').filter(Boolean) : [],
     topics: params.get('topics') ? params.get('topics').split(',').filter(Boolean) : [],
     q:      params.get('q')      || '',
     event:  params.get('event')  || null,
@@ -15,6 +16,7 @@ function buildHash(s) {
   const p = new URLSearchParams()
   if (s.view && s.view !== 'List') p.set('view', s.view)
   if (s.date)                       p.set('date', s.date)
+  if (s.cities && s.cities.length)  p.set('cities', s.cities.join(','))
   if (s.topics && s.topics.length)  p.set('topics', s.topics.join(','))
   if (s.q)                          p.set('q', s.q)
   if (s.event)                      p.set('event', s.event)

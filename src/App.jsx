@@ -716,6 +716,7 @@ const navBtn = {
 // ──────────────────────── Footer ────────────────────────
 const Footer = ({ device }) => {
   const isMobile = device === "mobile"
+  if (isMobile) return null
   return (
     <div style={{
       padding: isMobile ? "16px 14px" : "20px 28px",
@@ -742,6 +743,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   const isMobile = device === 'mobile'
   const [hash, setHash] = useHash()
   const [searchOpen, setSearchOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
   const [anchorRect, setAnchorRect] = useState(null)
   const [fromOrg, setFromOrg] = useState(null)       // host name when event was opened from OrgPanel
   const [dayPopover, setDayPopover] = useState(null) // { date, anchorRect }
@@ -754,9 +756,10 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   }, [hash.date])
 
   const filters = useMemo(() => ({
-    cities: [], types: [], audiences: [],
+    cities: hash.cities || [],
+    types: [], audiences: [],
     topics: hash.topics || [],
-  }), [hash.topics])
+  }), [hash.cities, hash.topics])
 
   const search = hash.q || ''
 
@@ -768,11 +771,16 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   const setCursor = useCallback((d) => setHash(h => ({ ...h, date: toISO(d) })), [setHash])
   const setFilters = useCallback((updater) => {
     setHash(h => {
-      const current = { cities: [], types: [], audiences: [], topics: h.topics || [] }
+      const current = { cities: h.cities || [], types: [], audiences: [], topics: h.topics || [] }
       const next = typeof updater === 'function' ? updater(current) : { ...current, ...updater }
-      return { ...h, topics: next.topics }
+      return { ...h, cities: next.cities, topics: next.topics }
     })
   }, [setHash])
+
+  const totalActiveFilters = useMemo(() =>
+    filters.cities.length + filters.types.length + filters.audiences.length + filters.topics.length,
+    [filters]
+  )
   const setSearch = useCallback((q) => setHash(h => ({ ...h, q })), [setHash])
 
   const selectEvent = useCallback((event, anchorEl, sourceOrg) => {
@@ -822,7 +830,9 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
         device={device}
         view={view} setView={setView}
         onSubmit={() => window.open(SUBMIT_URL, "_blank", "noopener,noreferrer")}
-        searchOpen={searchOpen} setSearchOpen={setSearchOpen} />
+        searchOpen={searchOpen} setSearchOpen={setSearchOpen}
+        filterOpen={filterOpen} setFilterOpen={setFilterOpen}
+        totalActiveFilters={totalActiveFilters} />
 
       <FilterBar
         device={device}
@@ -831,7 +841,8 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
         search={search} setSearch={setSearch}
         searchOpen={searchOpen} setSearchOpen={setSearchOpen}
         resultCount={filteredForView.length}
-        view={view} />
+        view={view}
+        filterOpen={filterOpen} setFilterOpen={setFilterOpen} />
 
       <PeriodNav view={view} cursor={cursor} setCursor={setCursor} device={device} resultCount={filteredForView.length} />
 
