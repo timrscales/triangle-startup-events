@@ -194,9 +194,25 @@ export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, 
         </div>
       </div>
 
-      {/* View toggle + Filters */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <ViewToggle view={view} setView={setView} isMobile={false} />
+      {/* View toggle */}
+      <ViewToggle view={view} setView={setView} isMobile={false} />
+
+      {/* Right: search + filters + submit */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button
+          onClick={() => setSearchOpen(!searchOpen)}
+          aria-label="Search"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "0 12px", height: 36, fontSize: 12, fontWeight: 800,
+            fontFamily: "inherit", cursor: "pointer",
+            background: searchOpen ? "var(--ink)" : "var(--paper-2)",
+            color: searchOpen ? "#fff" : "var(--ink-2)",
+            border: `1px solid ${searchOpen ? "var(--ink)" : "var(--line)"}`,
+          }}>
+          <SearchIcon />
+          Search
+        </button>
         <button
           onClick={() => setFilterOpen(true)}
           style={{
@@ -217,13 +233,6 @@ export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, 
               fontSize: 9, fontWeight: 900, letterSpacing: 0,
             }}>{totalActiveFilters}</span>
           )}
-        </button>
-      </div>
-
-      {/* Right: search + submit */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <button onClick={() => setSearchOpen(!searchOpen)} aria-label="Search" style={iconBtn(false)}>
-          <SearchIcon />
         </button>
         <button onClick={onSubmit} style={ctaBtn}>Submit an Event</button>
       </div>

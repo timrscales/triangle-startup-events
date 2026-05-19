@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 function parseHash() {
   const params = new URLSearchParams(window.location.hash.slice(1))
   return {
-    view:   params.get('view')   || 'List',
+    view:   params.get('view')   || 'Month',
     date:   params.get('date')   || null,
     cities: params.get('cities') ? params.get('cities').split(',').filter(Boolean) : [],
     topics: params.get('topics') ? params.get('topics').split(',').filter(Boolean) : [],
