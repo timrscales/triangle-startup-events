@@ -169,6 +169,39 @@ const HostIcon = () =>
     <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01"/>
   </svg>
 
+// ──────────────────────── Host helpers ────────────────────────
+function getHosts(event) {
+  return event.hosts && event.hosts.length ? event.hosts : [event.host]
+}
+
+const HostList = ({ event, onSelectOrg }) => {
+  const hosts = getHosts(event)
+  const linkStyle = {
+    fontWeight: 800, color: "var(--ink)",
+    cursor: onSelectOrg ? "pointer" : "default",
+    borderBottom: onSelectOrg ? "1.5px solid var(--line)" : "none",
+    paddingBottom: 1,
+    background: "none", border: "none", font: "inherit",
+    display: "inline", padding: 0,
+  }
+  const names = hosts.map((h) => (
+    <b key={h} onClick={(e) => { e.stopPropagation(); onSelectOrg && onSelectOrg(h) }} style={linkStyle}>{h}</b>
+  ))
+  let joined
+  if (names.length === 1) {
+    joined = names[0]
+  } else if (names.length === 2) {
+    joined = <>{names[0]} <span style={{ color: "var(--muted)" }}>and</span> {names[1]}</>
+  } else {
+    joined = <>{names[0]}<span style={{ color: "var(--muted)" }}>, </span>{names[1]}<span style={{ color: "var(--muted)" }}>, and </span>{names[2]}</>
+  }
+  return (
+    <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+      <span style={{ color: "var(--muted)" }}>Hosted by </span>{joined}
+    </div>
+  )
+}
+
 // ──────────────────────── Detail panel ────────────────────────
 const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, onBackToOrg, device }) => {
   const isMobile = device === "mobile"
@@ -218,18 +251,7 @@ const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, o
       <div style={{ overflowY: "auto", padding: isMobile ? "18px 16px" : "24px", display: "flex", flexDirection: "column", gap: 16, minHeight: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
           <span style={{ display: "inline-flex", alignItems: "center", height: 20, color: "var(--muted)", flexShrink: 0 }}><HostIcon /></span>
-          <div style={{ fontSize: 14, lineHeight: 1.4 }}>
-            <span style={{ color: "var(--muted)" }}>Hosted by </span>
-            <b
-              onClick={(e) => { e.stopPropagation(); onSelectOrg && onSelectOrg(event.host) }}
-              style={{
-                fontWeight: 800, color: "var(--ink)",
-                cursor: onSelectOrg ? "pointer" : "default",
-                borderBottom: onSelectOrg ? "1.5px solid var(--line)" : "none",
-                paddingBottom: 1,
-              }}
-            >{event.host}</b>
-          </div>
+          <HostList event={event} onSelectOrg={onSelectOrg} />
         </div>
 
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
@@ -419,7 +441,7 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
   const profile = ORG_PROFILES[host] || {}
   const today = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate())
   const orgEvents = allEvents
-    .filter(e => e.host === host && (parseDate(e.date) >= today || e.id === sourceEventId))
+    .filter(e => getHosts(e).includes(host) && (parseDate(e.date) >= today || e.id === sourceEventId))
     .sort((a, b) => a.date.localeCompare(b.date))
 
   const content = (
@@ -828,7 +850,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
           root={rootRef.current}
           onClose={closeEvent}
           onSelectOrg={(host) => {
-            setOrgPanel({ host, sourceEventId: selected.id })
+            setOrgPanel({ host, sourceEventId: selected.id, fromEvent: selected })
             closeEvent()
           }}
           fromOrg={fromOrg}
@@ -844,7 +866,14 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
           host={orgPanel.host}
           sourceEventId={orgPanel.sourceEventId}
           allEvents={EVENTS}
-          onClose={() => setOrgPanel(null)}
+          onClose={() => {
+            if (orgPanel.fromEvent) {
+              setFromOrg(null)
+              setAnchorRect(null)
+              setHash(h => ({ ...h, event: orgPanel.fromEvent.id }))
+            }
+            setOrgPanel(null)
+          }}
           onSelectEvent={(e) => selectEvent(e, null, orgPanel.host)}
           device={device}
         />

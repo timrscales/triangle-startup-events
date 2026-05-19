@@ -153,7 +153,7 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minHeight: 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minHeight: 0, overflow: "hidden" }}>
                 {dayEvents.length === 0 ? null
                   : dayEvents.length === 1
                     ? <MonthEventPill event={dayEvents[0]} onClick={ev => { ev.stopPropagation(); onSelectEvent(dayEvents[0], ev.currentTarget) }} />
@@ -190,6 +190,7 @@ const MonthEventPill = ({ event, onClick }) => {
       lineHeight: 1.25,
       transition: "transform 120ms",
       minWidth: 0, overflow: "hidden",
+      flexShrink: 1, minHeight: 0,
     }}
     onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={e => e.currentTarget.style.transform = ""}
