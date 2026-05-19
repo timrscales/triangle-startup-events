@@ -3,7 +3,7 @@ name: Deploy Event Calendar
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 12 * * *'  # 7am EST (noon UTC)
+    - cron: '0 11 * * *'  # 6am EST / 7am EDT (11:00 UTC)
 
 permissions:
   contents: write
