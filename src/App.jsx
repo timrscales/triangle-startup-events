@@ -5,7 +5,7 @@ import {
   fmtTime, fmtTimeRange, durationHours,
   applyFilters, eventStyle, tagStyle,
   iconBtn, ctaBtn,
-  TopBar, XIcon, ExternalIcon, ChevronLeft, ChevronRight, PinIcon,
+  TopBar, XIcon, ExternalIcon, ChevronLeft, ChevronRight, PinIcon, hashIndex,
 } from './shell.jsx'
 import {
   FilterBar, MonthView, WeekView, ListView,
@@ -63,6 +63,7 @@ function normalizeEvent(e) {
 }
 
 const EVENTS = (window.__EVENTS__ || []).map(normalizeEvent)
+const ORG_PROFILES = window.ORG_PROFILES || {}
 
 function toISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -169,7 +170,7 @@ const HostIcon = () =>
   </svg>
 
 // ──────────────────────── Detail panel ────────────────────────
-const DetailPanel = ({ event, anchorRect, root, onClose, device }) => {
+const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, onBackToOrg, device }) => {
   const isMobile = device === "mobile"
   const style = eventStyle(event)
 
@@ -195,6 +196,16 @@ const DetailPanel = ({ event, anchorRect, root, onClose, device }) => {
         {event.editors_pick && (
           <div style={{ marginBottom: 10 }}><PickBadge /></div>
         )}
+        {fromOrg && onBackToOrg && (
+          <button onClick={onBackToOrg} style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            background: "transparent", border: 0, cursor: "pointer",
+            fontSize: 12, fontWeight: 700, color: style.deep, fontFamily: "inherit",
+            padding: "0 0 10px", marginLeft: -2,
+          }}>
+            <ChevronLeft /> {fromOrg}
+          </button>
+        )}
         <h2 style={{
           fontSize: isMobile ? 22 : 28, fontWeight: 900, color: "var(--ink)",
           letterSpacing: "-0.018em", lineHeight: 1.08, margin: 0, paddingRight: 32
@@ -209,7 +220,15 @@ const DetailPanel = ({ event, anchorRect, root, onClose, device }) => {
           <span style={{ display: "inline-flex", alignItems: "center", height: 20, color: "var(--muted)", flexShrink: 0 }}><HostIcon /></span>
           <div style={{ fontSize: 14, lineHeight: 1.4 }}>
             <span style={{ color: "var(--muted)" }}>Hosted by </span>
-            <b style={{ fontWeight: 800, color: "var(--ink)" }}>{event.host}</b>
+            <b
+              onClick={(e) => { e.stopPropagation(); onSelectOrg && onSelectOrg(event.host) }}
+              style={{
+                fontWeight: 800, color: "var(--ink)",
+                cursor: onSelectOrg ? "pointer" : "default",
+                borderBottom: onSelectOrg ? "1.5px solid var(--line)" : "none",
+                paddingBottom: 1,
+              }}
+            >{event.host}</b>
           </div>
         </div>
 
@@ -241,6 +260,9 @@ const DetailPanel = ({ event, anchorRect, root, onClose, device }) => {
       </div>
 
       <div style={{ padding: isMobile ? 14 : 18, borderTop: "1px solid var(--line)", background: "var(--paper)" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-2)", marginBottom: 10 }}>
+          {event.friendly_date}
+        </div>
         <a href={event.source_url} target="_blank" rel="noopener noreferrer" style={{
           display: "flex", textAlign: "center", textDecoration: "none",
           background: "var(--accent-mint)", color: "var(--rdsw-blue-dark)",
@@ -343,6 +365,139 @@ const DayPopover = ({ date, anchorRect, root, events, onSelectEvent, onClose, de
     <AnchoredPopover anchorRect={anchorRect} root={root} width={300} onClose={onClose} ariaLabel="Events this day">
       {content}
     </AnchoredPopover>
+  )
+}
+
+// ──────────────────────── Org panel ────────────────────────
+const LinkIcon = () =>
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+  </svg>
+
+const OrgLogo = ({ host, size = 56 }) => {
+  const initials = host.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase()
+  const colors = [
+    { bg: "#003D69", fg: "#fff" },
+    { bg: "#FFB648", fg: "#5C3800" },
+    { bg: "#B577FC", fg: "#fff" },
+    { bg: "#1BE0B0", fg: "#004D47" },
+    { bg: "#FC7777", fg: "#fff" },
+  ]
+  const col = colors[hashIndex(host, colors.length)]
+  return (
+    <div style={{
+      width: size, height: size, flexShrink: 0,
+      background: col.bg, color: col.fg,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: size * 0.35, fontWeight: 900, letterSpacing: "-0.02em",
+    }}>{initials}</div>
+  )
+}
+
+const OrgEventRow = ({ event, isSource, onClick }) => {
+  const style = eventStyle(event)
+  return (
+    <div onClick={onClick} style={{
+      display: "flex", flexDirection: "column", gap: 2,
+      padding: "10px 12px", cursor: "pointer",
+      borderLeft: `3px solid ${style.dot}`, background: style.soft,
+      lineHeight: 1.3, transition: "transform 120ms",
+      outline: isSource ? `2px solid ${style.dot}` : "none",
+      outlineOffset: -2,
+    }}
+    onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
+    onMouseLeave={e => e.currentTarget.style.transform = ""}
+    >
+      <div style={{ fontSize: 11, fontWeight: 800, color: style.deep }}>{event.friendly_date}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", lineHeight: 1.25 }}>{event.name}</div>
+    </div>
+  )
+}
+
+const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, device }) => {
+  const isMobile = device === "mobile"
+  const profile = ORG_PROFILES[host] || {}
+  const today = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate())
+  const orgEvents = allEvents
+    .filter(e => e.host === host && (parseDate(e.date) >= today || e.id === sourceEventId))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const content = (
+    <div style={{ display: "flex", flexDirection: "column", background: "var(--paper)", height: "100%", overflow: "hidden" }}>
+      <div style={{ padding: isMobile ? "20px 16px" : "28px 28px 24px", borderBottom: "1px solid var(--line)", position: "relative" }}>
+        <button onClick={onClose} aria-label="Close" style={{
+          position: "absolute", top: 14, right: 14,
+          width: 32, height: 32, background: "rgba(255,255,255,0.85)", border: 0, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink)",
+        }}><XIcon /></button>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 16, paddingRight: 36 }}>
+          <OrgLogo host={host} size={isMobile ? 48 : 64} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>Organizer</div>
+            <h2 style={{ fontSize: isMobile ? 20 : 26, fontWeight: 900, color: "var(--ink)", letterSpacing: "-0.015em", lineHeight: 1.1, margin: 0 }}>{host}</h2>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+        <div style={{ padding: isMobile ? "20px 16px" : "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
+          {profile.description && (
+            <p style={{ margin: 0, fontSize: 14, color: "var(--ink-2)", lineHeight: 1.6 }}>{profile.description}</p>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {profile.website && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "var(--muted)", flexShrink: 0, display: "flex", alignItems: "center" }}><LinkIcon /></span>
+                <a href={profile.website} target="_blank" rel="noopener noreferrer" style={{
+                  fontSize: 13, fontWeight: 600, color: "var(--rdsw-blue-dark)",
+                  textDecoration: "underline", textUnderlineOffset: 2,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>{profile.website.replace(/^https?:\/\//, "")}</a>
+              </div>
+            )}
+            {profile.address && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <span style={{ color: "var(--muted)", flexShrink: 0, paddingTop: 1 }}><PinIcon /></span>
+                <span style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.4 }}>{profile.address}</span>
+              </div>
+            )}
+          </div>
+          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 12 }}>
+              Upcoming events
+            </div>
+            {orgEvents.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--muted)" }}>No upcoming events from this organizer.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {orgEvents.map(e => (
+                  <OrgEventRow key={e.id} event={e} isSource={e.id === sourceEventId} onClick={() => onSelectEvent(e)} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (isMobile) {
+    return (
+      <>
+        <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(10,10,10,0.35)", zIndex: 25, animation: "tseScrim 180ms var(--ease-out)" }} />
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "92vh", zIndex: 35, background: "var(--paper)", boxShadow: "var(--shadow-3)", display: "flex", flexDirection: "column", animation: "tseSlideUp 220ms var(--ease-out)" }}>{content}</div>
+      </>
+    )
+  }
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(10,10,10,0.28)", zIndex: 20, animation: "tseScrim 180ms var(--ease-out)" }} />
+      <div style={{
+        position: "absolute", top: 0, right: 0, bottom: 0, width: 480, zIndex: 30,
+        boxShadow: "var(--shadow-3)",
+        animation: "tseSlideIn 220ms var(--ease-out)",
+      }}>{content}</div>
+    </>
   )
 }
 
@@ -566,9 +721,11 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   const [hash, setHash] = useHash()
   const [searchOpen, setSearchOpen] = useState(false)
   const [anchorRect, setAnchorRect] = useState(null)
+  const [fromOrg, setFromOrg] = useState(null)       // host name when event was opened from OrgPanel
   const [dayPopover, setDayPopover] = useState(null) // { date, anchorRect }
+  const [orgPanel, setOrgPanel] = useState(null)     // { host, sourceEventId }
 
-  const view = hash.view || 'List'
+  const view = hash.view || 'Month'
   const cursor = useMemo(() => {
     if (!hash.date) return new Date(TODAY)
     try { return parseDate(hash.date) } catch { return new Date(TODAY) }
@@ -596,8 +753,10 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   }, [setHash])
   const setSearch = useCallback((q) => setHash(h => ({ ...h, q })), [setHash])
 
-  const selectEvent = useCallback((event, anchorEl) => {
+  const selectEvent = useCallback((event, anchorEl, sourceOrg) => {
     setDayPopover(null)
+    setOrgPanel(null)
+    setFromOrg(sourceOrg || null)
     const rect = (anchorEl && rootRef.current && !isMobile)
       ? localRect(anchorEl, rootRef.current) : null
     setAnchorRect(rect)
@@ -606,6 +765,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
 
   const closeEvent = useCallback(() => {
     setAnchorRect(null)
+    setFromOrg(null)
     setHash(h => ({ ...h, event: null }))
   }, [setHash])
 
@@ -662,7 +822,32 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
       <Footer device={device} />
 
       {selected && (
-        <DetailPanel event={selected} anchorRect={anchorRect} root={rootRef.current} onClose={closeEvent} device={device} />
+        <DetailPanel
+          event={selected}
+          anchorRect={anchorRect}
+          root={rootRef.current}
+          onClose={closeEvent}
+          onSelectOrg={(host) => {
+            setOrgPanel({ host, sourceEventId: selected.id })
+            closeEvent()
+          }}
+          fromOrg={fromOrg}
+          onBackToOrg={fromOrg ? () => {
+            setOrgPanel({ host: fromOrg, sourceEventId: selected.id })
+            closeEvent()
+          } : null}
+          device={device}
+        />
+      )}
+      {orgPanel && (
+        <OrgPanel
+          host={orgPanel.host}
+          sourceEventId={orgPanel.sourceEventId}
+          allEvents={EVENTS}
+          onClose={() => setOrgPanel(null)}
+          onSelectEvent={(e) => selectEvent(e, null, orgPanel.host)}
+          device={device}
+        />
       )}
       {dayPopover && (
         <DayPopover date={dayPopover.date} anchorRect={dayPopover.anchorRect} root={rootRef.current} events={dayPopoverEvents} onSelectEvent={selectEvent} onClose={() => setDayPopover(null)} device={device} />

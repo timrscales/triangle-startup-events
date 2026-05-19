@@ -59,6 +59,36 @@ APPROVED_TAGS = [
     "Student Founders",
 ]
 
+_TRIANGLE_CITIES = [
+    "Raleigh", "Durham", "Chapel Hill", "RTP", "Cary", "Morrisville",
+    "Carrboro", "Apex", "Wake Forest", "Hillsborough", "Pittsboro",
+]
+
+
+def _city_from_location(location: str) -> str:
+    """Extract the primary Triangle city from a location string."""
+    loc = location.lower()
+    for city in _TRIANGLE_CITIES:
+        if city.lower() in loc:
+            return city
+    return ""
+
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # emoji: symbols, transport, faces, objects, extended
+    "☀-➿"          # misc symbols + dingbats
+    "️"                 # variation selector-16
+    "‍"                 # zero-width joiner
+    "]+",
+    re.UNICODE,
+)
+
+
+def _strip_emojis(text: str) -> str:
+    """Remove emoji characters and collapse any resulting extra whitespace."""
+    return re.sub(r"\s+", " ", _EMOJI_RE.sub("", text)).strip()
+
 
 # ── Lila Learning ─────────────────────────────────────────────────────────────
 
@@ -186,7 +216,7 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
         lines = [l for l in text.splitlines() if l.strip()]
         description = " ".join(lines[4:8])[:350]
 
-    tags = ["Community"]
+    tags = []
     if re.search(r"\bpitch\b|\bpitching\b", text, re.I):
         tags.append("Pitch Practice")
     if re.search(r"\binvest\b", text, re.I):
@@ -206,7 +236,8 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
         "location": location,
         "topic_tags": list(dict.fromkeys(tags)),
         "description": description,
-        "organizer": "Lila Learning",
+        "host": "Lila Learning",
+        "city": _city_from_location(location),
         "source_url": url,
     }
 
@@ -319,6 +350,7 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
 
         geo = ev.get("geo_address_json") or ev.get("geo_address_info") or {}
         location = geo.get("address") or geo.get("full_address") or geo.get("city") or ""
+        city = geo.get("city") or _city_from_location(location)
 
         name = (ev.get("name") or ev.get("title") or "").strip()
 
@@ -331,13 +363,13 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
             source_url = calendar_url
 
         description = (ev.get("description") or "").strip()
-        organizer = ""
+        host = ""
         if source_url.startswith("https://lu.ma/"):
-            fetched_desc, organizer = _fetch_luma_event_details(source_url)
+            fetched_desc, host = _fetch_luma_event_details(source_url)
             if not description:
                 description = fetched_desc
-        if not organizer:
-            organizer = calendar_name
+        if not host:
+            host = calendar_name
         if len(description) > 400:
             description = description[:400].rsplit(" ", 1)[0] + "…"
 
@@ -347,9 +379,10 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
             "start_time": start_time_str,
             "end_time": end_time_str,
             "location": location,
-            "topic_tags": ["Networking", "Community"],
+            "topic_tags": [],
             "description": description,
-            "organizer": organizer,
+            "host": host,
+            "city": city,
             "source_url": source_url,
         })
 
@@ -435,8 +468,10 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
             ref = venue_ref.get("__ref", "")
             venue_id = ref.split(":", 1)[1] if ":" in ref else ""
         venue = venues.get(venue_id, {})
-        loc_parts = [venue.get("name", ""), venue.get("address", ""), venue.get("city", ""), venue.get("state", "")]
+        venue_city = venue.get("city", "")
+        loc_parts = [venue.get("name", ""), venue.get("address", ""), venue_city, venue.get("state", "")]
         location = ", ".join(p for p in loc_parts if p)
+        city = venue_city if TRIANGLE_TERMS.search(venue_city) else _city_from_location(location)
 
         description = ev.get("description", "")
         if description:
@@ -448,9 +483,9 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
             description = description[:800]
 
         group_ref = ev.get("group", {}).get("__ref", "") if isinstance(ev.get("group"), dict) else ""
-        organizer = groups.get(group_ref, "")
+        host = groups.get(group_ref, "")
 
-        tags = ["Networking", "Community"]
+        tags = []
         if re.search(r"\bai\b|artificial intelligence|machine learning", description, re.I):
             tags.append("AI & Data")
         if re.search(r"\bfundrais", description, re.I):
@@ -466,7 +501,8 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
             "location": location,
             "topic_tags": list(dict.fromkeys(tags)),
             "description": description,
-            "organizer": organizer,
+            "host": host,
+            "city": city,
             "source_url": ev.get("eventUrl", calendar_url),
         })
 
@@ -517,9 +553,11 @@ def fetch_1mc_events(
         f"Each object must have: name (string), date (YYYY-MM-DD), "
         f"start_time (HH:MM or 00:00 if unknown), end_time (HH:MM or empty string), "
         f"location (venue name and full address), "
-        f"topic_tags (array using only: {', '.join(APPROVED_TAGS)}), "
+        f"topic_tags (array of 1-3 tags chosen strictly from: {', '.join(APPROVED_TAGS)}), "
+        f"event_type (single most specific tag from the same list, must appear in topic_tags), "
         f"description (1-3 sentences about the event), "
-        f"organizer (name of the hosting organization or person, or '1 Million Cups' if unknown), "
+        f"host (name of the hosting organization or person, or '1 Million Cups' if unknown), "
+        f"city (city where event takes place: Raleigh, Durham, Chapel Hill, RTP, or empty string), "
         f"source_url (direct URL to the specific event — look in LINKS FOUND ON PAGE for individual "
         f"event URLs, NOT the calendar page {calendar_url!r}). "
         f"Return [] if no upcoming in-person events found.\n\n"
@@ -627,9 +665,10 @@ def _parse_cednc_article(article, today_dt: datetime, end_dt: datetime) -> dict 
         "start_time": start_time,
         "end_time": end_time,
         "location": location,
-        "topic_tags": ["Community"],
+        "topic_tags": [],
         "description": "",
-        "organizer": "",
+        "host": "",
+        "city": _city_from_location(location),
         "source_url": detail_url,
         "_detail_url": detail_url,
     }
@@ -650,7 +689,7 @@ def _fetch_cednc_detail(event: dict) -> dict:
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         for i, line in enumerate(lines):
             if line == "Organizer" and i + 1 < len(lines):
-                event["organizer"] = lines[i + 1]
+                event["host"] = lines[i + 1]
                 break
         # Use external "Website" as source_url if present
         for i, line in enumerate(lines):
@@ -782,7 +821,7 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
                     except ValueError:
                         pass
 
-            tags = ["Community"]
+            tags = []
             if re.search(r"\bpitch\b", title, re.I):
                 tags.append("Pitch Practice")
             if re.search(r"\bnetwork\b", title, re.I):
@@ -800,7 +839,8 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
                 "location": _FFVC_LOCATION,
                 "topic_tags": list(dict.fromkeys(tags)),
                 "description": description or "",
-                "organizer": "First Flight Venture Center",
+                "host": "First Flight Venture Center",
+                "city": "RTP",
                 "source_url": calendar_url,
             })
         else:
@@ -916,15 +956,24 @@ def create_event_record(event: dict) -> dict:
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
     }
-    organizer = str(event.get("organizer", "")).strip()
-    if organizer:
-        fields["Organizer"] = organizer
+    host = str(event.get("host", "")).strip()
+    if host:
+        fields["Organizer"] = host
     end_time = str(event.get("end_time", "")).strip()
     if end_time:
         fields["End Time"] = end_time
     tags = event.get("topic_tags")
     if isinstance(tags, list) and tags:
         fields["Topic Tags"] = [str(t).strip() for t in tags if str(t).strip()]
+    city = str(event.get("city", "")).strip()
+    if city:
+        fields["City"] = city
+    event_type = str(event.get("event_type", "")).strip()
+    if event_type:
+        fields["Event Type"] = event_type
+    friendly_date = str(event.get("friendly_date", "")).strip()
+    if friendly_date:
+        fields["Friendly Date"] = friendly_date
     resp = requests.post(AIRTABLE_URL, headers=headers, json={"fields": fields}, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -946,38 +995,58 @@ def is_valid_event(event: dict) -> tuple[bool, str]:
     return True, ""
 
 
-# ── Description summarization ─────────────────────────────────────────────────
+# ── Event enrichment (description, tags, event_type) ─────────────────────────
 
-def _summarize_one(name: str, description: str, client: anthropic.Anthropic) -> str:
-    """Ask Claude for a single one-sentence event summary."""
+def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
+    """Ask Claude to enrich a single event: description, topic_tags, event_type."""
+    name = event.get("name", "")
+    raw_desc = event.get("description", "").strip()
+    location = event.get("location", "")
+    host = event.get("host", "")
+    approved = ", ".join(APPROVED_TAGS)
+
     prompt = (
-        f"Summarize this event in exactly ONE sentence (20–35 words). "
-        f"Stay close to the original description — preserve specific details, topics, and format. "
-        f"Write in third person (not 'you'll' or 'join us'). No marketing fluff.\n\n"
-        f"Event: {name}\nDescription: {description[:700]}\n\nOne sentence:"
+        f"Given this event, return a JSON object with exactly three keys:\n"
+        f'- "description": one sentence (20-35 words), third person, specific details, no marketing fluff. '
+        f'If no raw description is provided, write one based on the event name and host.\n'
+        f'- "topic_tags": JSON array of 1-3 tags chosen strictly from this list: [{approved}]. '
+        f'Pick the most specific tags that match — use "Community" only for purely social gatherings '
+        f'with no specific topic. Prefer tags like "Networking", "Workshop", "AI & Data", "Fundraising", etc.\n'
+        f'- "event_type": single most specific tag from the same list (must appear in topic_tags)\n\n'
+        f"Event name: {name}\n"
+        f"Raw description: {raw_desc[:700] if raw_desc else '(none)'}\n"
+        f"Location: {location}\n"
+        f"Host: {host}\n\n"
+        f"Return only valid JSON, no markdown fences."
     )
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=80,
+            max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
-        return "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+        raw = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+        data = json.loads(raw)
+        if isinstance(data.get("description"), str) and data["description"].strip():
+            event["description"] = data["description"].strip()
+        if isinstance(data.get("topic_tags"), list) and data["topic_tags"]:
+            event["topic_tags"] = [t for t in data["topic_tags"] if t in APPROVED_TAGS][:3]
+        if isinstance(data.get("event_type"), str) and data["event_type"] in APPROVED_TAGS:
+            event["event_type"] = data["event_type"]
+        else:
+            event["event_type"] = (event.get("topic_tags") or ["Networking"])[0]
     except Exception as exc:
-        print(f"    WARNING: Summary failed for {name!r} — {exc}")
-        return description
+        print(f"    WARNING: Enrichment failed for {name!r} — {exc}")
+        event.setdefault("event_type", (event.get("topic_tags") or ["Networking"])[0])
+    return event
 
 
-def summarize_descriptions(events: list[dict], client: anthropic.Anthropic) -> list[dict]:
-    """Replace raw descriptions with Claude-generated one-sentence summaries."""
-    count = 0
+def enrich_events(events: list[dict], client: anthropic.Anthropic) -> list[dict]:
+    """Enrich all events: description, topic_tags, event_type via Claude."""
     for ev in events:
-        if ev.get("description", "").strip():
-            ev["description"] = _summarize_one(ev["name"], ev["description"], client)
-            count += 1
-            time.sleep(0.1)
-    if count:
-        print(f"  Summarized {count} description(s)")
+        _enrich_one(ev, client)
+        time.sleep(0.1)
+    print(f"  Enriched {len(events)} event(s)")
     return events
 
 
@@ -1031,8 +1100,15 @@ def main():
         print("Nothing to add.")
         return
 
-    print("\nGenerating one-sentence descriptions via Claude…")
-    all_events = summarize_descriptions(all_events, client)
+    print("\nEnriching events via Claude (description, tags, event_type)…")
+    all_events = enrich_events(all_events, client)
+
+    print("Computing friendly dates…")
+    for ev in all_events:
+        ev["friendly_date"] = format_friendly_date(ev["date"], ev["start_time"], ev["end_time"])
+
+    for ev in all_events:
+        ev["name"] = _strip_emojis(ev["name"])
 
     print("Fetching existing Airtable events…")
     existing = get_existing_events()
