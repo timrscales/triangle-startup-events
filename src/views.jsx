@@ -618,24 +618,32 @@ export const EventCard = ({ event, variant = "standard", onClick }) => {
 
 const EventCardCompact = ({ event, style, onClick }) => (
   <div onClick={(e) => onClick(e.currentTarget)} style={{
-    display: "flex", alignItems: "center", gap: 14, padding: "12px 14px",
+    display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
     background: "var(--paper)", border: "1px solid var(--line)",
     borderLeft: `3px solid ${style.dot}`,
     cursor: "pointer", transition: "transform 120ms, box-shadow 120ms",
   }}
   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-2)" }}
   onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "" }}>
-    <div style={{ fontSize: 13, fontWeight: 800, color: style.deep, width: 80, flexShrink: 0 }}>
-      {fmtTime(event.start_time)}
+    <div style={{ width: 72, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: style.deep, lineHeight: 1.2 }}>
+        {fmtTime(event.start_time)}
+      </div>
+      {event.city && (
+        <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, lineHeight: 1.2 }}>
+          {event.city}
+        </div>
+      )}
     </div>
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-        <span style={{ fontSize: 15, fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.005em" }}>{event.name}</span>
-        {event.editors_pick && <PickBadge />}
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {event.name}
       </div>
-      <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>
-        {event.event_type} · {event.city} · {event.host}
-      </div>
+      {event.host && (
+        <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {event.host}
+        </div>
+      )}
     </div>
     <ChevronRight />
   </div>
