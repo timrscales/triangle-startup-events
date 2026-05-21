@@ -31,7 +31,7 @@ export function durationHours(s, e) {
 }
 
 // ──────────────────────── filter helpers ────────────────────────
-export const ALL_CITIES = ["Cary", "Chapel Hill", "Durham", "Raleigh", "RTP"]
+export const ALL_CITIES = ["Chapel Hill", "Durham", "Raleigh", "RTP"]
 export const ALL_TYPES = ["Talk", "Panel", "Workshop", "Happy Hour", "Networking", "Demo Day"]
 export const ALL_AUDIENCES = ["Founders", "Engineers", "Designers", "Investors"]
 export const ALL_TOPICS = ["AI", "fundraising", "hardware", "design", "networking", "happy hour"]
