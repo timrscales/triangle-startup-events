@@ -737,6 +737,25 @@ const navBtn = {
   background: "var(--paper)", border: "1px solid var(--line)", color: "var(--ink-2)", cursor: "pointer"
 }
 
+// ──────────────────────── Footer ────────────────────────
+const Footer = ({ device }) => {
+  if (device === "mobile") return null
+  const linkStyle = { color: "var(--ink-2)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }
+  return (
+    <div style={{
+      padding: "20px 28px",
+      borderTop: "1px solid var(--line)", background: "var(--paper-2)",
+      fontSize: 12, color: "var(--muted)",
+    }}>
+      Curated by{" "}
+      <a href="https://www.timscales.com" target="_blank" rel="noopener noreferrer" style={linkStyle}>Tim Scales</a>
+      {" · "}
+      Questions or edits?{" "}
+      <a href="mailto:tim@timscales.com" style={linkStyle}>Send an email</a>
+    </div>
+  )
+}
+
 // ──────────────────────── Main app ────────────────────────
 export default function TriangleEventsApp({ device = "desktop", cardVariant = "standard" }) {
   const rootRef = useRef(null)
@@ -853,6 +872,8 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
         {view === "Week" && <WeekView device={device} cursor={cursor} events={filteredForView} onSelectEvent={selectEvent} />}
         {view === "List" && <ListView device={device} events={filteredForView} onSelectEvent={selectEvent} cardVariant={cardVariant} />}
       </div>
+
+      <Footer device={device} />
 
       {selected && (
         <DetailPanel
