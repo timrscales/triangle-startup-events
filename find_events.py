@@ -888,22 +888,81 @@ def parse_events(text: str) -> list[dict]:
     return []
 
 
-def get_existing_events() -> set[tuple[str, str]]:
-    """Return (lowercased_name, date) tuples for all Airtable events."""
+def _norm_location(loc: str) -> str:
+    """Lowercase, strip, collapse whitespace, drop trailing punctuation."""
+    s = re.sub(r"\s+", " ", str(loc or "").lower()).strip()
+    return s.rstrip(".,;:")
+
+
+class ExistingEvents:
+    """Multi-key index of Airtable events for duplicate detection.
+
+    Match priority:
+      1. source_url (exact)              — strongest signal
+      2. (date, start_time, location)    — same time + place, title may have been edited
+      3. (lowercased_name, date)         — fallback when source_url/location missing
+    """
+
+    def __init__(self) -> None:
+        self.by_source_url: set[str] = set()
+        self.by_time_loc: set[tuple[str, str, str]] = set()
+        self.by_name_date: set[tuple[str, str]] = set()
+
+    def add_record(self, fields: dict) -> None:
+        name = str(fields.get("Name", "")).lower().strip()
+        date = str(fields.get("Date", "")).strip()
+        start_time = str(fields.get("Start Time", "")).strip()
+        location = _norm_location(fields.get("Location", ""))
+        source_url = str(fields.get("Source URL", "")).strip()
+
+        if source_url:
+            self.by_source_url.add(source_url)
+        if date and start_time and location:
+            self.by_time_loc.add((date, start_time, location))
+        if name and date:
+            self.by_name_date.add((name, date))
+
+    def add_event(self, event: dict) -> None:
+        """Mirror an event we just created so subsequent iterations skip it."""
+        self.add_record({
+            "Name":       event.get("name", ""),
+            "Date":       event.get("date", ""),
+            "Start Time": event.get("start_time", ""),
+            "Location":   event.get("location", ""),
+            "Source URL": event.get("source_url", ""),
+        })
+
+    def match(self, event: dict) -> str | None:
+        """Return a short reason string if event looks like a duplicate, else None."""
+        source_url = str(event.get("source_url", "")).strip()
+        if source_url and source_url in self.by_source_url:
+            return "source_url"
+
+        date = str(event.get("date", "")).strip()
+        start_time = str(event.get("start_time", "")).strip()
+        location = _norm_location(event.get("location", ""))
+        if date and start_time and location and (date, start_time, location) in self.by_time_loc:
+            return "same time+location"
+
+        name = str(event.get("name", "")).lower().strip()
+        if name and date and (name, date) in self.by_name_date:
+            return "name+date"
+
+        return None
+
+
+def get_existing_events() -> ExistingEvents:
+    """Fetch all Airtable events and build a multi-key dedup index."""
     headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
-    params = {"fields[]": ["Name", "Date"]}
-    existing: set[tuple[str, str]] = set()
+    params: dict = {"fields[]": ["Name", "Date", "Start Time", "Location", "Source URL"]}
+    existing = ExistingEvents()
 
     while True:
         resp = requests.get(AIRTABLE_URL, headers=headers, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         for record in data.get("records", []):
-            fields = record.get("fields", {})
-            name = fields.get("Name", "").lower().strip()
-            date = fields.get("Date", "").strip()
-            if name and date:
-                existing.add((name, date))
+            existing.add_record(record.get("fields", {}))
         offset = data.get("offset")
         if not offset:
             break
@@ -1193,16 +1252,16 @@ def main():
             skipped += 1
             continue
 
-        key = (event["name"].lower().strip(), event["date"].strip())
-        if key in existing:
-            print(f"  SKIP (duplicate): {event['name']} on {event['date']}")
+        dup_reason = existing.match(event)
+        if dup_reason:
+            print(f"  SKIP (duplicate via {dup_reason}): {event['name']} on {event['date']}")
             skipped += 1
             continue
 
         try:
             create_event_record(event, orgs)
             print(f"  ADDED: {event['name']} on {event['date']}")
-            existing.add(key)
+            existing.add_event(event)
             added += 1
             time.sleep(0.25)  # Airtable 5 req/s limit
         except requests.HTTPError as exc:
