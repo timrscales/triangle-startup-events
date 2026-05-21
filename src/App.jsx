@@ -59,6 +59,7 @@ function normalizeEvent(e) {
     start_time: parseTimeStr(e.start_time),
     end_time: parseTimeStr(e.end_time),
     editors_pick: e.editors_pick || false,
+    is_free: e.is_free !== false,
   }
 }
 
@@ -759,7 +760,8 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
     cities: hash.cities || [],
     types: [], audiences: [],
     topics: hash.topics || [],
-  }), [hash.cities, hash.topics])
+    free:   hash.free || 'all',
+  }), [hash.cities, hash.topics, hash.free])
 
   const search = hash.q || ''
 
@@ -771,14 +773,15 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   const setCursor = useCallback((d) => setHash(h => ({ ...h, date: toISO(d) })), [setHash])
   const setFilters = useCallback((updater) => {
     setHash(h => {
-      const current = { cities: h.cities || [], types: [], audiences: [], topics: h.topics || [] }
+      const current = { cities: h.cities || [], types: [], audiences: [], topics: h.topics || [], free: h.free || 'all' }
       const next = typeof updater === 'function' ? updater(current) : { ...current, ...updater }
-      return { ...h, cities: next.cities, topics: next.topics }
+      return { ...h, cities: next.cities, topics: next.topics, free: next.free }
     })
   }, [setHash])
 
   const totalActiveFilters = useMemo(() =>
-    filters.cities.length + filters.types.length + filters.audiences.length + filters.topics.length,
+    filters.cities.length + filters.types.length + filters.audiences.length + filters.topics.length
+      + (filters.free && filters.free !== 'all' ? 1 : 0),
     [filters]
   )
   const setSearch = useCallback((q) => setHash(h => ({ ...h, q })), [setHash])

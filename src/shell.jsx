@@ -92,6 +92,8 @@ export function applyFilters(events, f, search) {
     if (f.types.length && !f.types.includes(e.event_type)) return false
     if (f.audiences.length && !(e.audience || []).some((a) => f.audiences.map(x => x.toLowerCase()).includes(a.toLowerCase()))) return false
     if (f.topics.length && !(e.topic_tags || []).some((t) => f.topics.map((x) => x.toLowerCase()).includes(t.toLowerCase()))) return false
+    if (f.free === 'free' && e.is_free === false) return false
+    if (f.free === 'paid' && e.is_free !== false) return false
     if (search) {
       const q = search.toLowerCase()
       const hay = (e.name + " " + e.description + " " + e.location + " " + (e.topic_tags || []).join(" ")).toLowerCase()

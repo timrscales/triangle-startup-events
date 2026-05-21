@@ -38,13 +38,66 @@ const CheckMarkIcon = () => (
   </svg>
 )
 
+const DollarIcon = ({ size = 10 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="1" x2="12" y2="23" />
+    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+  </svg>
+)
+
+export const PaidBadge = () => (
+  <span style={{
+    display: "inline-flex", alignItems: "center", gap: 3,
+    background: "#FAEEDA", color: "#854F0B",
+    fontSize: 11, fontWeight: 700,
+    padding: "2px 7px", borderRadius: 999,
+    lineHeight: 1, whiteSpace: "nowrap",
+  }}>
+    <DollarIcon size={10} />
+    Paid
+  </span>
+)
+
+const costSuffix = (e) => (e.is_free === false ? " · $" : "")
+
+const CostToggle = ({ value, onChange }) => {
+  const opts = [
+    { v: 'all',  label: 'All' },
+    { v: 'free', label: 'Free' },
+    { v: 'paid', label: 'Paid' },
+  ]
+  return (
+    <div style={{
+      display: "inline-flex",
+      border: "1px solid var(--line)",
+      background: "var(--paper-2)",
+      padding: 2, gap: 2,
+    }}>
+      {opts.map(o => {
+        const active = (value || 'all') === o.v
+        return (
+          <button key={o.v} onClick={() => onChange(o.v)} style={{
+            padding: "6px 14px", fontSize: 12, fontWeight: 800, letterSpacing: "0.02em",
+            background: active ? "var(--ink)" : "transparent",
+            color: active ? "#fff" : "var(--ink-3)",
+            border: 0, cursor: "pointer", fontFamily: "inherit",
+            transition: "background 120ms",
+          }}>{o.label}</button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ──────────────────────── Filter bar ────────────────────────
 export const FilterBar = ({ device, filters, setFilters, search, setSearch, searchOpen, setSearchOpen, resultCount, view, events, filterOpen, setFilterOpen }) => {
   const isMobile = device === "mobile"
   const tags = useMemo(() => topTags(events, 12), [events])
   const cities = useMemo(() => uniqueCities(events), [events])
   const activeTags = filters.topics.map(t => t.toLowerCase())
+  const freeValue  = filters.free || 'all'
   const totalActive = filters.cities.length + filters.types.length + filters.audiences.length + filters.topics.length
+    + (freeValue !== 'all' ? 1 : 0)
 
   const toggle = (val) => {
     setFilters(f => ({
@@ -54,8 +107,9 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
         : [...f.topics, val],
     }))
   }
-  const clearAll   = () => setFilters({ cities: [], types: [], audiences: [], topics: [] })
+  const clearAll   = () => setFilters({ cities: [], types: [], audiences: [], topics: [], free: 'all' })
   const toggleCity = (v) => setFilters(f => ({ ...f, cities: f.cities.includes(v) ? f.cities.filter(x => x !== v) : [...f.cities, v] }))
+  const setFree    = (v) => setFilters(f => ({ ...f, free: v }))
 
   const searchEl = searchOpen ? (
     <div style={{ display: "flex", gap: 8 }}>
@@ -130,6 +184,9 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
                       )
                     })}
                   </div>
+                </FilterSection>
+                <FilterSection title="Cost">
+                  <CostToggle value={freeValue} onChange={setFree} />
                 </FilterSection>
                 {cities.length > 0 && (
                   <FilterSection title="City">
@@ -216,6 +273,9 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
                     )
                   })}
                 </div>
+              </FilterSection>
+              <FilterSection title="Cost">
+                <CostToggle value={freeValue} onChange={setFree} />
               </FilterSection>
               <FilterSection title="City">
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -351,7 +411,7 @@ const MonthEventPill = ({ event, onClick }) => {
         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
         overflow: "hidden", wordBreak: "break-word",
       }}>
-        {event.name}
+        {event.name}{costSuffix(event)}
       </div>
     </div>
   )
@@ -379,7 +439,7 @@ const MonthEventThinBar = ({ event, onClick }) => {
       <span style={{
         fontSize: 11, fontWeight: 700, color: "var(--ink)",
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
-      }}>{event.name}</span>
+      }}>{event.name}{costSuffix(event)}</span>
     </div>
   )
 }
@@ -582,7 +642,7 @@ const WeekBlock = ({ event, top, height, col, totalCols, isMobile, onClick }) =>
         {fmtTime(event.start_time)}
       </div>
       <div style={{ fontSize: isMobile ? 10 : 11, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis" }}>
-        {event.name}
+        {event.name}{costSuffix(event)}
       </div>
     </div>
   )
@@ -675,6 +735,7 @@ const EventCardCompact = ({ event, style, onClick }) => (
     background: "var(--paper)", border: "1px solid var(--line)",
     borderLeft: `3px solid ${style.dot}`,
     cursor: "pointer", transition: "transform 120ms, box-shadow 120ms",
+    position: "relative",
   }}
   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-2)" }}
   onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "" }}>
@@ -695,6 +756,9 @@ const EventCardCompact = ({ event, style, onClick }) => (
         {event.host}
       </div>
     </div>
+    {event.is_free === false && (
+      <span style={{ position: "absolute", top: 8, right: 10 }}><PaidBadge /></span>
+    )}
     <ChevronRight />
   </div>
 )
@@ -705,9 +769,13 @@ const EventCardStandard = ({ event, style, onClick }) => (
     padding: 18, cursor: "pointer",
     display: "flex", flexDirection: "column", gap: 10,
     transition: "transform 120ms, box-shadow 120ms",
+    position: "relative",
   }}
   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "var(--shadow-2)" }}
   onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "" }}>
+    {event.is_free === false && (
+      <span style={{ position: "absolute", top: 12, right: 12 }}><PaidBadge /></span>
+    )}
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <TypeChip style={style} type={event.event_type} />
       {event.editors_pick && <PickBadge />}
@@ -733,9 +801,13 @@ const EventCardVisual = ({ event, style, onClick }) => (
     display: "flex", background: "var(--paper)", border: "1px solid var(--line)",
     cursor: "pointer", overflow: "hidden",
     transition: "transform 120ms, box-shadow 120ms",
+    position: "relative",
   }}
   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "var(--shadow-2)" }}
   onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "" }}>
+    {event.is_free === false && (
+      <span style={{ position: "absolute", top: 10, right: 12, zIndex: 1 }}><PaidBadge /></span>
+    )}
     <div style={{
       width: 92, flexShrink: 0,
       background: style.soft, color: style.deep,

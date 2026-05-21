@@ -7,6 +7,7 @@ function parseHash() {
     date:   params.get('date')   || null,
     cities: params.get('cities') ? params.get('cities').split(',').filter(Boolean) : [],
     topics: params.get('topics') ? params.get('topics').split(',').filter(Boolean) : [],
+    free:   (() => { const v = params.get('free'); return v === 'free' || v === 'paid' ? v : 'all' })(),
     q:      params.get('q')      || '',
     event:  params.get('event')  || null,
   }
@@ -18,6 +19,7 @@ function buildHash(s) {
   if (s.date)                       p.set('date', s.date)
   if (s.cities && s.cities.length)  p.set('cities', s.cities.join(','))
   if (s.topics && s.topics.length)  p.set('topics', s.topics.join(','))
+  if (s.free && s.free !== 'all')   p.set('free', s.free)
   if (s.q)                          p.set('q', s.q)
   if (s.event)                      p.set('event', s.event)
   const str = p.toString()

@@ -1105,6 +1105,7 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
         "Authorization": f"Bearer {AIRTABLE_API_KEY}",
         "Content-Type": "application/json",
     }
+    event.setdefault("is_free", True)
     fields: dict = {
         "Name": str(event.get("name", "")).strip(),
         "Date": str(event.get("date", "")).strip(),
@@ -1112,6 +1113,7 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
         "Location": str(event.get("location", "")).strip(),
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
+        "Is Free": bool(event["is_free"]),
     }
     org_rec_id = resolve_org(event.get("host", ""), orgs)
     if org_rec_id:
