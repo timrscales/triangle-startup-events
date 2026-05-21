@@ -9,7 +9,7 @@ import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import anthropic
 import requests
@@ -766,6 +766,30 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
     soup = BeautifulSoup(resp.text, "html.parser")
     for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
         tag.decompose()
+
+    # Map event title → detail page URL by scanning <a> tags BEFORE text extraction.
+    # FFVC detail pages live under /new-events/ on the Squarespace site.
+    link_map: dict[str, str] = {}
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if "/new-events/" not in href:
+            continue
+        text = a.get_text(strip=True)
+        if not text or len(text) < 5:
+            continue
+        full_url = urljoin(calendar_url, href)
+        # First occurrence wins (Squarespace renders image + title links per card).
+        link_map.setdefault(text.lower().strip(), full_url)
+
+    def find_event_url(title: str) -> str:
+        key = title.lower().strip()
+        if key in link_map:
+            return link_map[key]
+        matches = difflib.get_close_matches(key, link_map.keys(), n=1, cutoff=0.85)
+        if matches:
+            return link_map[matches[0]]
+        return calendar_url
+
     lines = [l.strip().replace(" ", " ") for l in soup.get_text(separator="\n").splitlines() if l.strip()]
 
     today_dt = datetime.strptime(today, "%Y-%m-%d")
@@ -843,7 +867,7 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
                 "description": description or "",
                 "host": "First Flight Venture Center",
                 "city": "RTP",
-                "source_url": calendar_url,
+                "source_url": find_event_url(title),
             })
         else:
             i += 1
