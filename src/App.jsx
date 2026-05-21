@@ -170,6 +170,12 @@ const HostIcon = () =>
     <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01"/>
   </svg>
 
+const DollarIcon = ({ size = 14 }) =>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="1" x2="12" y2="23" />
+    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+  </svg>
+
 // ──────────────────────── Host helpers ────────────────────────
 function getHosts(event) {
   return event.hosts && event.hosts.length ? event.hosts : [event.host]
@@ -255,6 +261,13 @@ const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, o
           <HostList event={event} onSelectOrg={onSelectOrg} />
         </div>
 
+        {event.is_free === false && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#854F0B", fontSize: 13, fontWeight: 700, marginTop: -6 }}>
+            <DollarIcon size={14} />
+            Paid event
+          </div>
+        )}
+
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
           <span style={{ display: "inline-flex", alignItems: "center", height: 20, color: "var(--muted)", flexShrink: 0 }}><PinIcon /></span>
           <div>
@@ -286,18 +299,33 @@ const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, o
         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-2)", marginBottom: 10 }}>
           {event.friendly_date}
         </div>
-        <a href={event.source_url} target="_blank" rel="noopener noreferrer" style={{
-          display: "flex", textAlign: "center", textDecoration: "none",
-          background: "var(--accent-mint)", color: "var(--rdsw-blue-dark)",
-          padding: "13px 18px", fontWeight: 800, fontSize: 14, letterSpacing: "0.01em",
-          alignItems: "center", justifyContent: "center", gap: 8,
-          transition: "background 120ms"
-        }}
-        onMouseEnter={(e) => e.currentTarget.style.background = "var(--accent-mint-deep)"}
-        onMouseLeave={(e) => e.currentTarget.style.background = "var(--accent-mint)"}
-        onClick={(e) => e.stopPropagation()}>
-          Learn More & RSVP <ExternalIcon />
-        </a>
+        {event.is_free === false ? (
+          <a href={event.source_url} target="_blank" rel="noopener noreferrer" style={{
+            display: "flex", textAlign: "center", textDecoration: "none",
+            background: "#EF9F27", color: "#412402",
+            padding: "13px 18px", fontWeight: 800, fontSize: 14, letterSpacing: "0.01em",
+            alignItems: "center", justifyContent: "center", gap: 8,
+            transition: "background 120ms"
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = "#D88718"}
+          onMouseLeave={(e) => e.currentTarget.style.background = "#EF9F27"}
+          onClick={(e) => e.stopPropagation()}>
+            View Tickets & Pricing →
+          </a>
+        ) : (
+          <a href={event.source_url} target="_blank" rel="noopener noreferrer" style={{
+            display: "flex", textAlign: "center", textDecoration: "none",
+            background: "var(--accent-mint)", color: "var(--rdsw-blue-dark)",
+            padding: "13px 18px", fontWeight: 800, fontSize: 14, letterSpacing: "0.01em",
+            alignItems: "center", justifyContent: "center", gap: 8,
+            transition: "background 120ms"
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = "var(--accent-mint-deep)"}
+          onMouseLeave={(e) => e.currentTarget.style.background = "var(--accent-mint)"}
+          onClick={(e) => e.stopPropagation()}>
+            Learn More & RSVP <ExternalIcon />
+          </a>
+        )}
       </div>
     </div>
 
@@ -432,7 +460,10 @@ const OrgEventRow = ({ event, isSource, onClick }) => {
     onMouseLeave={e => e.currentTarget.style.transform = ""}
     >
       <div style={{ fontSize: 11, fontWeight: 800, color: style.deep }}>{event.friendly_date}</div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", lineHeight: 1.25 }}>{event.name}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", lineHeight: 1.25 }}>
+        {event.name}
+        {event.is_free === false && <span style={{ color: "#854F0B" }}> $</span>}
+      </div>
     </div>
   )
 }
