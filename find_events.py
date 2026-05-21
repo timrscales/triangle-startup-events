@@ -1038,9 +1038,6 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
     city = str(event.get("city", "")).strip()
     if city:
         fields["City"] = city
-    friendly_date = str(event.get("friendly_date", "")).strip()
-    if friendly_date:
-        fields["Friendly Date"] = friendly_date
     resp = requests.post(AIRTABLE_URL, headers=headers, json={"fields": fields}, timeout=30)
     resp.raise_for_status()
     return resp.json()
