@@ -1038,9 +1038,6 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
     city = str(event.get("city", "")).strip()
     if city:
         fields["City"] = city
-    event_type = str(event.get("event_type", "")).strip()
-    if event_type:
-        fields["Event Type"] = event_type
     friendly_date = str(event.get("friendly_date", "")).strip()
     if friendly_date:
         fields["Friendly Date"] = friendly_date
