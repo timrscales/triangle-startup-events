@@ -460,9 +460,9 @@ const OrgEventRow = ({ event, isSource, onClick }) => {
     onMouseLeave={e => e.currentTarget.style.transform = ""}
     >
       <div style={{ fontSize: 11, fontWeight: 800, color: style.deep }}>{event.friendly_date}</div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", lineHeight: 1.25 }}>
-        {event.name}
-        {event.is_free === false && <span style={{ color: "#854F0B" }}> $</span>}
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", lineHeight: 1.25, display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <span style={{ flex: 1, minWidth: 0 }}>{event.name}</span>
+        {event.is_free === false && <span style={{ color: "#854F0B", flexShrink: 0 }}>$</span>}
       </div>
     </div>
   )

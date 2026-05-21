@@ -58,8 +58,6 @@ export const PaidBadge = () => (
   </span>
 )
 
-const costSuffix = (e) => (e.is_free === false ? " · $" : "")
-
 const CostToggle = ({ value, onChange }) => {
   const opts = [
     { v: 'all',  label: 'All' },
@@ -395,10 +393,16 @@ const MonthEventPill = ({ event, onClick }) => {
       transition: "transform 120ms",
       minWidth: 0, overflow: "hidden",
       flexShrink: 1, minHeight: 0,
+      position: "relative",
     }}
     onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={e => e.currentTarget.style.transform = ""}
     >
+      {event.is_free === false && (
+        <span style={{ position: "absolute", top: 4, right: 6, color: "#854F0B", display: "inline-flex" }}>
+          <DollarIcon size={11} />
+        </span>
+      )}
       <div style={{
         fontSize: 10, fontWeight: 800, color: style.deep,
         letterSpacing: "0.02em", whiteSpace: "nowrap",
@@ -411,7 +415,7 @@ const MonthEventPill = ({ event, onClick }) => {
         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
         overflow: "hidden", wordBreak: "break-word",
       }}>
-        {event.name}{costSuffix(event)}
+        {event.name}
       </div>
     </div>
   )
@@ -437,9 +441,15 @@ const MonthEventThinBar = ({ event, onClick }) => {
         {fmtTime(event.start_time)}
       </span>
       <span style={{
+        flex: 1,
         fontSize: 11, fontWeight: 700, color: "var(--ink)",
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
-      }}>{event.name}{costSuffix(event)}</span>
+      }}>{event.name}</span>
+      {event.is_free === false && (
+        <span style={{ color: "#854F0B", display: "inline-flex", flexShrink: 0 }}>
+          <DollarIcon size={10} />
+        </span>
+      )}
     </div>
   )
 }
@@ -638,11 +648,14 @@ const WeekBlock = ({ event, top, height, col, totalCols, isMobile, onClick }) =>
     onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={e => e.currentTarget.style.transform = ""}
     >
-      <div style={{ fontSize: isMobile ? 9 : 10, fontWeight: 800, color: style.deep, letterSpacing: "0.02em" }}>
-        {fmtTime(event.start_time)}
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: isMobile ? 9 : 10, fontWeight: 800, color: style.deep, letterSpacing: "0.02em" }}>
+          {fmtTime(event.start_time)}
+        </span>
+        {event.is_free === false && <span style={{ marginLeft: "auto" }}><PaidBadge /></span>}
       </div>
       <div style={{ fontSize: isMobile ? 10 : 11, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis" }}>
-        {event.name}{costSuffix(event)}
+        {event.name}
       </div>
     </div>
   )
