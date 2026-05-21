@@ -222,22 +222,24 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
       {filterOpen && (
         <>
           <div onClick={() => setFilterOpen(false)} style={{
-            position: "absolute", inset: 0, background: "rgba(10,10,10,0.45)", zIndex: 40,
-            animation: "tseScrim 180ms var(--ease-out)",
+            position: "absolute", inset: 0, zIndex: 40,
           }} />
           <div style={{
-            position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 41,
-            background: "var(--paper)", maxHeight: "82vh",
+            position: "absolute", top: 76, right: 28, zIndex: 41,
+            width: 380, maxHeight: "70vh",
+            background: "var(--paper)",
+            border: "1px solid var(--line)",
             display: "flex", flexDirection: "column",
             boxShadow: "var(--shadow-3)",
-            animation: "tseSlideUp 220ms var(--ease-out)",
+            animation: "tseFadeScale 160ms var(--ease-out)",
+            transformOrigin: "top right",
           }}>
             <div style={{
-              padding: "14px 28px 12px", borderBottom: "1px solid var(--line)",
+              padding: "12px 16px", borderBottom: "1px solid var(--line)",
               display: "flex", alignItems: "center", justifyContent: "space-between",
               flexShrink: 0,
             }}>
-              <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)" }}>Filters</span>
+              <span style={{ fontSize: 15, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)" }}>Filters</span>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {totalActive > 0 && (
                   <button onClick={clearAll} style={{
@@ -246,10 +248,13 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
                     textDecoration: "underline", textUnderlineOffset: 3, padding: 0,
                   }}>Clear all</button>
                 )}
-                <button onClick={() => setFilterOpen(false)} style={iconBtn(false)}><XIcon /></button>
+                <button onClick={() => setFilterOpen(false)} aria-label="Close filters" style={{
+                  width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  background: "transparent", border: 0, color: "var(--ink-3)", cursor: "pointer", padding: 0,
+                }}><XIcon /></button>
               </div>
             </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 4px" }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px 4px" }}>
               <FilterSection title="Topics">
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {tags.map(({ tag }) => {
@@ -280,16 +285,6 @@ export const FilterBar = ({ device, filters, setFilters, search, setSearch, sear
                   {cities.map(c => <FilterChip key={c} label={c} active={filters.cities.includes(c)} onToggle={() => toggleCity(c)} />)}
                 </div>
               </FilterSection>
-            </div>
-            <div style={{ padding: "12px 28px", borderTop: "1px solid var(--line)", flexShrink: 0 }}>
-              <button onClick={() => setFilterOpen(false)} style={{
-                width: "100%", padding: "14px", fontFamily: "inherit",
-                fontSize: 14, fontWeight: 800, letterSpacing: "0.01em",
-                background: "var(--ink)", color: "#fff",
-                border: 0, cursor: "pointer",
-              }}>
-                {totalActive > 0 ? `Show ${resultCount} result${resultCount !== 1 ? "s" : ""}` : "Done"}
-              </button>
             </div>
           </div>
         </>

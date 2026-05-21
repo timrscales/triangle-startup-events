@@ -9,7 +9,7 @@ import {
 } from './shell.jsx'
 import {
   FilterBar, MonthView, WeekView, ListView,
-  PickBadge,
+  PickBadge, PaidBadge,
 } from './views.jsx'
 import { useHash } from './useHash.js'
 
@@ -170,12 +170,6 @@ const HostIcon = () =>
     <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01"/>
   </svg>
 
-const DollarIcon = ({ size = 14 }) =>
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="1" x2="12" y2="23" />
-    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-  </svg>
-
 // ──────────────────────── Host helpers ────────────────────────
 function getHosts(event) {
   return event.hosts && event.hosts.length ? event.hosts : [event.host]
@@ -256,17 +250,13 @@ const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, o
       </div>
 
       <div style={{ overflowY: "auto", padding: isMobile ? "18px 16px" : "24px", display: "flex", flexDirection: "column", gap: 16, minHeight: 0 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ display: "inline-flex", alignItems: "center", height: 20, color: "var(--muted)", flexShrink: 0 }}><HostIcon /></span>
-          <HostList event={event} onSelectOrg={onSelectOrg} />
-        </div>
-
-        {event.is_free === false && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#854F0B", fontSize: 13, fontWeight: 700, marginTop: -6 }}>
-            <DollarIcon size={14} />
-            Paid event
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <HostList event={event} onSelectOrg={onSelectOrg} />
           </div>
-        )}
+          {event.is_free === false && <PaidBadge />}
+        </div>
 
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
           <span style={{ display: "inline-flex", alignItems: "center", height: 20, color: "var(--muted)", flexShrink: 0 }}><PinIcon /></span>
@@ -745,30 +735,6 @@ const navBtn = {
   background: "var(--paper)", border: "1px solid var(--line)", color: "var(--ink-2)", cursor: "pointer"
 }
 
-// ──────────────────────── Footer ────────────────────────
-const Footer = ({ device }) => {
-  const isMobile = device === "mobile"
-  if (isMobile) return null
-  return (
-    <div style={{
-      padding: isMobile ? "16px 14px" : "20px 28px",
-      borderTop: "1px solid var(--line)", background: "var(--paper-2)",
-      display: "flex", flexDirection: isMobile ? "column" : "row",
-      alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between",
-      gap: 8, fontSize: 12, color: "var(--muted)"
-    }}>
-      <div>
-        Curated by <a href="https://timscales.com" target="_blank" style={{ color: "var(--ink-2)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }}>Tim Scales</a> · All events are free, in-person in the Triangle, and designed for startup founders and their teams.
-      </div>
-      <div style={{ display: "flex", gap: 14 }}>
-        <a href="#" style={{ color: "var(--ink-3)", fontWeight: 600, textDecoration: "none" }}></a>
-        <a href="#" style={{ color: "var(--ink-3)", fontWeight: 600, textDecoration: "none" }}></a>
-        <a href="#" style={{ color: "var(--ink-3)", fontWeight: 600, textDecoration: "none" }}></a>
-      </div>
-    </div>
-  )
-}
-
 // ──────────────────────── Main app ────────────────────────
 export default function TriangleEventsApp({ device = "desktop", cardVariant = "standard" }) {
   const rootRef = useRef(null)
@@ -885,8 +851,6 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
         {view === "Week" && <WeekView device={device} cursor={cursor} events={filteredForView} onSelectEvent={selectEvent} />}
         {view === "List" && <ListView device={device} events={filteredForView} onSelectEvent={selectEvent} cardVariant={cardVariant} />}
       </div>
-
-      <Footer device={device} />
 
       {selected && (
         <DetailPanel

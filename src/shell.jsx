@@ -191,7 +191,7 @@ export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, 
           <span style={{ fontSize: 16, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)", whiteSpace: "nowrap" }}>
             Triangle Startup Events
           </span>
-          <span style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, fontWeight: 500 }}>Free, in-person events for founders & their teams in the Raleigh-Durham area
+          <span style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, fontWeight: 500 }}>Curated startup events for founders and builders in the Triangle
           </span>
         </div>
       </div>
