@@ -932,6 +932,10 @@ class ExistingEvents:
         self.by_time_loc: set[tuple[str, str, str]] = set()
         self.by_name_date: set[tuple[str, str]] = set()
 
+    def __len__(self) -> int:
+        # Best proxy for "how many records did we index" — name+date covers every record.
+        return len(self.by_name_date)
+
     def add_record(self, fields: dict) -> None:
         name = str(fields.get("Name", "")).lower().strip()
         date = str(fields.get("Date", "")).strip()
