@@ -113,7 +113,7 @@ jobs:
                   "source_url":    f.get("Source URL", ""),
                   "host":          resolve_org(f.get("Organizer")),
                   "editors_pick":  bool(f.get("Editors Pick", False)),
-                  "is_free":       bool(f.get("Is Free", True)),
+                  "is_free":       not bool(f.get("Paid", False)),
               })
           print(f"Loaded {len(events)} approved event(s)")
 

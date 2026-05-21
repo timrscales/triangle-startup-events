@@ -1113,7 +1113,7 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
         "Location": str(event.get("location", "")).strip(),
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
-        "Is Free": bool(event["is_free"]),
+        "Paid": not bool(event["is_free"]),
     }
     org_rec_id = resolve_org(event.get("host", ""), orgs)
     if org_rec_id:
