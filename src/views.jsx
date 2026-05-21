@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react'
 import {
-  TODAY, MONTHS, DOW_SHORT, DOW_FULL,
-  parseDate, sameDay, addDays, startOfWeek, startOfMonth,
+  TODAY, MONTHS, DOW_SHORT, DOW_FULL, ALL_CITIES,
+  parseDate, sameDay, addDays, startOfWeek, startOfMonth, isPast,
   fmtTime, fmtTimeRange, durationHours,
-  eventStyle, tagStyle, topTags, uniqueCities,
+  eventStyle, tagStyle, topTags,
   iconBtn, XIcon, PinIcon, ChevronRight, StarIcon, FunnelIcon,
 } from './shell.jsx'
 
@@ -91,7 +91,10 @@ const CostToggle = ({ value, onChange }) => {
 export const FilterBar = ({ device, filters, setFilters, search, setSearch, searchOpen, setSearchOpen, resultCount, view, events, filterOpen, setFilterOpen }) => {
   const isMobile = device === "mobile"
   const tags = useMemo(() => topTags(events, 12), [events])
-  const cities = useMemo(() => uniqueCities(events), [events])
+  const cities = useMemo(() => {
+    const fromFuture = events.filter(e => !isPast(e.date)).map(e => e.city).filter(Boolean)
+    return [...new Set([...ALL_CITIES, ...fromFuture])].sort()
+  }, [events])
   const activeTags = filters.topics.map(t => t.toLowerCase())
   const freeValue  = filters.free || 'all'
   const totalActive = filters.cities.length + filters.types.length + filters.audiences.length + filters.topics.length
@@ -377,6 +380,7 @@ export const MonthView = ({ device, cursor, events, onSelectEvent, onSelectDay }
 
 const MonthEventPill = ({ event, onClick }) => {
   const style = eventStyle(event)
+  const past = isPast(event.date)
   return (
     <div onClick={onClick} style={{
       display: "flex", flexDirection: "column", gap: 2,
@@ -389,6 +393,7 @@ const MonthEventPill = ({ event, onClick }) => {
       minWidth: 0, overflow: "hidden",
       flexShrink: 1, minHeight: 0,
       position: "relative",
+      opacity: past ? 0.5 : 1,
     }}
     onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={e => e.currentTarget.style.transform = ""}
@@ -418,6 +423,7 @@ const MonthEventPill = ({ event, onClick }) => {
 
 const MonthEventThinBar = ({ event, onClick }) => {
   const style = eventStyle(event)
+  const past = isPast(event.date)
   return (
     <div onClick={onClick} style={{
       display: "flex", alignItems: "center", gap: 6,
@@ -428,6 +434,7 @@ const MonthEventThinBar = ({ event, onClick }) => {
       minWidth: 0, overflow: "hidden",
       lineHeight: 1.2,
       transition: "transform 120ms",
+      opacity: past ? 0.5 : 1,
     }}
     onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={e => e.currentTarget.style.transform = ""}
@@ -629,6 +636,7 @@ export const WeekView = ({ device, cursor, events, onSelectEvent }) => {
 
 const WeekBlock = ({ event, top, height, col, totalCols, isMobile, onClick }) => {
   const style = eventStyle(event)
+  const past = isPast(event.date)
   const L = `calc(${col / totalCols * 100}% + 2px)`
   const R = `calc(${(totalCols - col - 1) / totalCols * 100}% + 2px)`
   return (
@@ -639,6 +647,7 @@ const WeekBlock = ({ event, top, height, col, totalCols, isMobile, onClick }) =>
       cursor: "pointer", overflow: "hidden",
       display: "flex", flexDirection: "column", gap: 1,
       transition: "transform 120ms",
+      opacity: past ? 0.5 : 1,
     }}
     onMouseEnter={e => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={e => e.currentTarget.style.transform = ""}
@@ -704,7 +713,7 @@ export const ListView = ({ device, events, onSelectEvent, cardVariant }) => {
               display: "grid",
               gridTemplateColumns: isMobile ? "1fr" : (cardVariant === "compact" ? "1fr" : "repeat(auto-fill, minmax(360px, 1fr))"),
               gap: 12,
-              opacity: isPast ? 0.6 : 1,
+              opacity: isPast ? 0.5 : 1,
             }}>
               {groups[date].map(e => (
                 <EventCard key={e.id} event={e} variant={cardVariant} onClick={(el) => onSelectEvent(e, el)} />

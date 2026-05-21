@@ -8,8 +8,10 @@ export const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 export const DOW_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 export const TODAY = new Date()
+export const TODAY_START = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate())
 
 export function parseDate(s) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d) }
+export function isPast(dateStr) { return parseDate(dateStr) < TODAY_START }
 export function sameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate() }
 export function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 export function startOfWeek(d) { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); x.setHours(0, 0, 0, 0); return x }
@@ -29,7 +31,7 @@ export function durationHours(s, e) {
 }
 
 // ──────────────────────── filter helpers ────────────────────────
-export const ALL_CITIES = ["Raleigh", "Durham", "Chapel Hill", "RTP"]
+export const ALL_CITIES = ["Cary", "Chapel Hill", "Durham", "Raleigh", "RTP"]
 export const ALL_TYPES = ["Talk", "Panel", "Workshop", "Happy Hour", "Networking", "Demo Day"]
 export const ALL_AUDIENCES = ["Founders", "Engineers", "Designers", "Investors"]
 export const ALL_TOPICS = ["AI", "fundraising", "hardware", "design", "networking", "happy hour"]

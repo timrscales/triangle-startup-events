@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import {
   TODAY, MONTHS, DOW_SHORT, DOW_FULL, ALL_CITIES, ALL_TYPES, ALL_AUDIENCES,
-  parseDate, sameDay, addDays, startOfWeek,
+  parseDate, sameDay, addDays, startOfWeek, isPast,
   fmtTime, fmtTimeRange, durationHours,
   applyFilters, eventStyle, tagStyle,
   iconBtn, ctaBtn,
@@ -346,12 +346,14 @@ const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, o
 // ──────────────────────── Day popover ────────────────────────
 const DayPopoverRow = ({ event, onClick }) => {
   const style = eventStyle(event)
+  const past = isPast(event.date)
   return (
     <div onClick={onClick} style={{
       display: "flex", flexDirection: "column", gap: 2,
       padding: "9px 11px", cursor: "pointer",
       borderLeft: `3px solid ${style.dot}`, background: style.soft,
       lineHeight: 1.3, transition: "transform 120ms",
+      opacity: past ? 0.5 : 1,
     }}
     onMouseEnter={(e) => e.currentTarget.style.transform = "translateX(2px)"}
     onMouseLeave={(e) => e.currentTarget.style.transform = ""}
@@ -463,7 +465,7 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
   const profile = ORG_PROFILES[host] || {}
   const today = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate())
   const orgEvents = allEvents
-    .filter(e => getHosts(e).includes(host) && (parseDate(e.date) >= today || e.id === sourceEventId))
+    .filter(e => getHosts(e).includes(host) && parseDate(e.date) >= today)
     .sort((a, b) => a.date.localeCompare(b.date))
 
   const content = (
