@@ -12,6 +12,7 @@ import {
   PickBadge, PaidBadge,
 } from './views.jsx'
 import { useHash } from './useHash.js'
+import { FilloutPopupEmbed } from '@fillout/react'
 
 // ──────────────────────── Data layer ────────────────────────
 function stableId(e) {
@@ -738,16 +739,8 @@ const navBtn = {
 }
 
 // ──────────────────────── Footer ────────────────────────
-const FILLOUT_EMBED_SRC = "https://server.fillout.com/embed/v1/"
 const Footer = ({ device }) => {
-  useEffect(() => {
-    if (device === "mobile") return
-    if (document.querySelector(`script[src="${FILLOUT_EMBED_SRC}"]`)) return
-    const s = document.createElement("script")
-    s.src = FILLOUT_EMBED_SRC
-    s.async = true
-    document.body.appendChild(s)
-  }, [device])
+  const [subscribeOpen, setSubscribeOpen] = useState(false)
   if (device === "mobile") return null
   const linkStyle = { color: "var(--ink-2)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }
   return (
@@ -769,15 +762,24 @@ const Footer = ({ device }) => {
           <strong style={{ color: "var(--ink-2)", fontWeight: 700 }}>Never miss an event.</strong>{" "}
           Get a free weekly update every Monday.
         </span>
-        <div
-          data-fillout-id="p8EpU6J3bwus"
-          data-fillout-embed-type="popup"
-          data-fillout-button-text="Subscribe for Free"
-          data-fillout-dynamic-resize=""
-          data-fillout-button-color="#009DE0"
-          data-fillout-button-size="small"
-          data-fillout-inherit-parameters=""
-          data-fillout-popup-size="medium"
+        <button
+          onClick={() => setSubscribeOpen(true)}
+          style={{
+            background: "#009DE0", color: "#fff", border: 0,
+            padding: "10px 16px", fontSize: 13, fontWeight: 800,
+            letterSpacing: "0.01em", fontFamily: "inherit",
+            cursor: "pointer", transition: "background 120ms",
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = "#0086C0"}
+          onMouseLeave={e => e.currentTarget.style.background = "#009DE0"}
+        >
+          Subscribe for Free
+        </button>
+        <FilloutPopupEmbed
+          filloutId="p8EpU6J3bwus"
+          inheritParameters
+          isOpen={subscribeOpen}
+          onClose={() => setSubscribeOpen(false)}
         />
       </div>
     </div>

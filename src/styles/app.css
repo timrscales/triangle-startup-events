@@ -21,12 +21,3 @@ html, body, #root { height: 100%; }
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-
-/* Force the Fillout embed button to match the site's typography. The library
-   sets its own font-family inline, so we override with high specificity. */
-div[data-fillout-id],
-div[data-fillout-id] *,
-div[data-fillout-id] button {
-  font-family: var(--font-sans) !important;
-  letter-spacing: 0.01em !important;
-}
