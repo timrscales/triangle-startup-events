@@ -764,16 +764,22 @@ const Footer = ({ device }) => {
         Questions or edits?{" "}
         <a href="mailto:tim@timscales.com" style={linkStyle}>Send an email</a>
       </div>
-      <div
-        data-fillout-id="p8EpU6J3bwus"
-        data-fillout-embed-type="popup"
-        data-fillout-button-text="Subscribe for Free"
-        data-fillout-dynamic-resize=""
-        data-fillout-button-color="#009DE0"
-        data-fillout-button-size="large"
-        data-fillout-inherit-parameters=""
-        data-fillout-popup-size="medium"
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span>
+          <strong style={{ color: "var(--ink-2)", fontWeight: 700 }}>Never miss an event.</strong>{" "}
+          Get a free weekly update every Monday.
+        </span>
+        <div
+          data-fillout-id="p8EpU6J3bwus"
+          data-fillout-embed-type="popup"
+          data-fillout-button-text="Subscribe for Free"
+          data-fillout-dynamic-resize=""
+          data-fillout-button-color="#009DE0"
+          data-fillout-button-size="small"
+          data-fillout-inherit-parameters=""
+          data-fillout-popup-size="medium"
+        />
+      </div>
     </div>
   )
 }
