@@ -1218,11 +1218,14 @@ def main():
     print(f"Triangle Startup Events — {today} → {end_date}\n")
     all_events: list[dict] = []
 
-    print("[1/10] Lila Learning…")
+    print("[1/11] Lila Learning…")
     all_events.extend(fetch_lila_events(today, end_date))
 
-    print("\n[2/10] Luma — Raleigh-Durham Startup Week…")
+    print("\n[2/11] Luma — Raleigh-Durham Startup Week…")
     all_events.extend(fetch_luma_events("https://lu.ma/raleighdurhamstartupweek", today, end_date))
+
+    print("\n[3/11] Luma — Triangle Startup Calendar…")
+    all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-e7mpB5yqt2phl0T", today, end_date))
 
     meetup_sources = [
         ("triangle-startup-collective", "https://www.meetup.com/triangle-startup-collective/"),
@@ -1231,17 +1234,17 @@ def main():
         ("raleigh-startup-founder-101", "https://www.meetup.com/raleigh-startup-founder-101/"),
         ("triangle-techbreakfast",      "https://www.meetup.com/triangle-techbreakfast/"),
     ]
-    for idx, (label, url) in enumerate(meetup_sources, start=3):
-        print(f"\n[{idx}/10] Meetup — {label}…")
+    for idx, (label, url) in enumerate(meetup_sources, start=4):
+        print(f"\n[{idx}/11] Meetup — {label}…")
         all_events.extend(fetch_meetup_events(url, today, end_date))
 
-    print("\n[8/10] CEDNC…")
+    print("\n[9/11] CEDNC…")
     all_events.extend(fetch_cednc_events("https://cednc.org/events/", today, end_date))
 
-    print("\n[9/10] First Flight Venture Center…")
+    print("\n[10/11] First Flight Venture Center…")
     all_events.extend(fetch_ffvc_events("https://www.ffvcnc.org/ourevents", today, end_date))
 
-    print("\n[10/10] 1 Million Cups — Durham (Playwright + Claude)…")
+    print("\n[11/11] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
         "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
         client, today, end_date,
