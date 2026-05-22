@@ -1150,6 +1150,24 @@ def is_valid_event(event: dict) -> tuple[bool, str]:
 
 # ── Event enrichment (description, tags, event_type) ─────────────────────────
 
+# Keyword → tag rules applied deterministically before Claude enrichment so
+# obvious cases stay tagged even when the model call fails or omits them.
+_KEYWORD_TAG_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bcoworking\b", re.I), "Coworking"),
+]
+
+
+def _seed_keyword_tags(event: dict) -> None:
+    """Add tags implied by keywords in the event name/description."""
+    text = f"{event.get('name', '')} {event.get('description', '')}"
+    tags = list(event.get("topic_tags") or [])
+    for pattern, tag in _KEYWORD_TAG_RULES:
+        if tag in APPROVED_TAGS and pattern.search(text) and tag not in tags:
+            tags.append(tag)
+    if tags:
+        event["topic_tags"] = tags
+
+
 def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
     """Ask Claude to enrich a single event: description, topic_tags, event_type."""
     name = event.get("name", "")
@@ -1183,7 +1201,13 @@ def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
         if isinstance(data.get("description"), str) and data["description"].strip():
             event["description"] = data["description"].strip()
         if isinstance(data.get("topic_tags"), list) and data["topic_tags"]:
-            event["topic_tags"] = [t for t in data["topic_tags"] if t in APPROVED_TAGS][:3]
+            seeded = list(event.get("topic_tags") or [])
+            claude_tags = [t for t in data["topic_tags"] if t in APPROVED_TAGS]
+            merged: list[str] = []
+            for t in [*seeded, *claude_tags]:
+                if t not in merged:
+                    merged.append(t)
+            event["topic_tags"] = merged[:3]
         if isinstance(data.get("event_type"), str) and data["event_type"] in APPROVED_TAGS:
             event["event_type"] = data["event_type"]
         else:
@@ -1255,6 +1279,9 @@ def main():
     if not all_events:
         print("Nothing to add.")
         return
+
+    for ev in all_events:
+        _seed_keyword_tags(ev)
 
     print("\nEnriching events via Claude (description, tags, event_type)…")
     all_events = enrich_events(all_events, client)
