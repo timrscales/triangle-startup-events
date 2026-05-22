@@ -738,7 +738,16 @@ const navBtn = {
 }
 
 // ──────────────────────── Footer ────────────────────────
+const FILLOUT_EMBED_SRC = "https://server.fillout.com/embed/v1/"
 const Footer = ({ device }) => {
+  useEffect(() => {
+    if (device === "mobile") return
+    if (document.querySelector(`script[src="${FILLOUT_EMBED_SRC}"]`)) return
+    const s = document.createElement("script")
+    s.src = FILLOUT_EMBED_SRC
+    s.async = true
+    document.body.appendChild(s)
+  }, [device])
   if (device === "mobile") return null
   const linkStyle = { color: "var(--ink-2)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }
   return (
@@ -746,12 +755,25 @@ const Footer = ({ device }) => {
       padding: "20px 28px",
       borderTop: "1px solid var(--line)", background: "var(--paper-2)",
       fontSize: 12, color: "var(--muted)",
+      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
     }}>
-      Curated by{" "}
-      <a href="https://www.timscales.com" target="_blank" rel="noopener noreferrer" style={linkStyle}>Tim Scales</a>
-      {" · "}
-      Questions or edits?{" "}
-      <a href="mailto:tim@timscales.com" style={linkStyle}>Send an email</a>
+      <div>
+        Curated by{" "}
+        <a href="https://www.timscales.com" target="_blank" rel="noopener noreferrer" style={linkStyle}>Tim Scales</a>
+        {" · "}
+        Questions or edits?{" "}
+        <a href="mailto:tim@timscales.com" style={linkStyle}>Send an email</a>
+      </div>
+      <div
+        data-fillout-id="p8EpU6J3bwus"
+        data-fillout-embed-type="popup"
+        data-fillout-button-text="Subscribe for Free"
+        data-fillout-dynamic-resize=""
+        data-fillout-button-color="#009DE0"
+        data-fillout-button-size="large"
+        data-fillout-inherit-parameters=""
+        data-fillout-popup-size="medium"
+      />
     </div>
   )
 }
