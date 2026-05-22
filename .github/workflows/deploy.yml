@@ -141,4 +141,5 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          cname: events.timscales.com
           commit_message: "Deploy event calendar [${{ github.run_number }}]"
