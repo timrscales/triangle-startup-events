@@ -754,7 +754,7 @@ const Footer = ({ device }) => {
         Curated by{" "}
         <a href="https://www.timscales.com" target="_blank" rel="noopener noreferrer" style={linkStyle}>Tim Scales</a>
         {" · "}
-        Questions or edits?{" "}
+        Additions, changes, or questions?{" "}
         <a href="mailto:tim@timscales.com" style={linkStyle}>Send an email</a>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
