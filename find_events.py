@@ -733,6 +733,151 @@ def fetch_cednc_events(calendar_url: str, today: str, end_date: str) -> list[dic
     return events
 
 
+# ── echo-nc.org ───────────────────────────────────────────────────────────────
+
+def _parse_echo_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict | None:
+    """Fetch and parse a single echo-nc.org event detail page."""
+    try:
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"    SKIP (fetch failed): {url} — {exc}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Title from <h1> or <title>
+    h1 = soup.find("h1")
+    name = h1.get_text(strip=True) if h1 else ""
+    if not name:
+        title_tag = soup.find("title")
+        name = title_tag.get_text(strip=True).split("|")[0].strip() if title_tag else ""
+
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+
+    # Skip virtual events
+    if re.search(r"\bvirtual\b|\bonline\b|\bwebinar\b", text[:600], re.I):
+        print(f"    SKIP (virtual): {name}")
+        return None
+
+    # Date: "Wednesday, June 25, 2026" or "June 25, 2026"
+    date_match = re.search(
+        r"(?:\w+,\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s+(\d{1,2}),?\s+(\d{4})",
+        text,
+    )
+    if not date_match:
+        print(f"    SKIP (no date found): {name}")
+        return None
+
+    try:
+        event_dt = datetime.strptime(
+            f"{date_match.group(1)} {date_match.group(2)} {date_match.group(3)}", "%B %d %Y"
+        )
+    except ValueError:
+        print(f"    SKIP (bad date): {name}")
+        return None
+
+    if event_dt < today_dt or event_dt > end_dt:
+        return None
+
+    date_str = event_dt.strftime("%Y-%m-%d")
+
+    # Times: "9:00 AM" / "10:00 AM" — look for two consecutive AM/PM times
+    time_match = re.search(
+        r"(\d{1,2}:\d{2}\s*[AP]M)\s*[-–—to]+\s*(\d{1,2}:\d{2}\s*[AP]M)", text, re.I
+    )
+    if time_match:
+        try:
+            start_time = datetime.strptime(time_match.group(1).strip(), "%I:%M %p").strftime("%H:%M")
+        except ValueError:
+            start_time = "00:00"
+        try:
+            end_time = datetime.strptime(time_match.group(2).strip(), "%I:%M %p").strftime("%H:%M")
+        except ValueError:
+            end_time = ""
+    else:
+        single = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)", text, re.I)
+        if single:
+            try:
+                start_time = datetime.strptime(single.group(1).strip(), "%I:%M %p").strftime("%H:%M")
+            except ValueError:
+                start_time = "00:00"
+        else:
+            start_time = "00:00"
+        end_time = ""
+
+    # Location: prefer full address with street number
+    addr_match = re.search(
+        r"\d+\s+\w[^\n]{5,80},\s+\w[^\n]{2,40}(?:NC|North Carolina)[^\n]{0,30}\d{5}", text
+    )
+    if addr_match:
+        location = addr_match.group(0).strip()
+    else:
+        loc_match = re.search(
+            r"(?:echo Community Hub[^\n]{0,60}|[A-Z][^.!\n]{3,60},\s+"
+            r"(?:Raleigh|Durham|Chapel Hill|Cary|RTP)[^.!\n]{0,40})",
+            text,
+        )
+        location = loc_match.group(0).strip() if loc_match else ""
+
+    # Description: first substantial paragraph after the title
+    desc = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if len(line) > 60 and name.lower() not in line.lower():
+            desc = line
+            break
+
+    return {
+        "name": name,
+        "date": date_str,
+        "start_time": start_time,
+        "end_time": end_time,
+        "location": location,
+        "description": desc,
+        "host": "echo",
+        "city": "Durham",
+        "topic_tags": [],
+        "source_url": url,
+    }
+
+
+def fetch_echo_events(base_url: str, today: str, end_date: str) -> list[dict]:
+    """Scrape echo-nc.org homepage for event links, then fetch each detail page."""
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    try:
+        resp = requests.get(base_url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"  SKIP (fetch failed): echo-nc.org — {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    seen: set[str] = set()
+    detail_urls: list[str] = []
+    for a in soup.find_all("a", href=re.compile(r"^/events/\w")):
+        href = a["href"]
+        full = f"https://www.echo-nc.org{href}"
+        if full not in seen:
+            seen.add(full)
+            detail_urls.append(full)
+
+    print(f"  echo: {len(detail_urls)} event link(s) found")
+
+    events: list[dict] = []
+    for url in detail_urls:
+        ev = _parse_echo_detail(url, today_dt, end_dt)
+        if ev:
+            events.append(ev)
+
+    return events
+
+
 # ── First Flight Venture Center ────────────────────────────────────────────────
 
 _FFVC_LOCATION = "First Flight Venture Center, 2 Davis Drive, Research Triangle Park, NC 27709"
@@ -1123,7 +1268,11 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
         fields["End Time"] = end_time
     tags = event.get("topic_tags")
     if isinstance(tags, list) and tags:
-        fields["Topic Tags"] = [str(t).strip() for t in tags if str(t).strip()]
+        fields["Topic Tags"] = [
+            str(t).strip().strip('"').strip("'")
+            for t in tags
+            if str(t).strip().strip('"').strip("'") in APPROVED_TAGS
+        ]
     city = str(event.get("city", "")).strip()
     if city:
         fields["City"] = city
@@ -1193,15 +1342,26 @@ def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+        raw = "".join(
+            b.text for b in response.content
+            if hasattr(b, "text") and b.type == "text"
+        ).strip()
+        if not raw:
+            raise ValueError(
+                f"empty response (stop_reason={response.stop_reason!r}, "
+                f"blocks={[type(b).__name__ for b in response.content]})"
+            )
+        # Strip markdown fences if the model ignored instructions
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
         data = json.loads(raw)
         if isinstance(data.get("description"), str) and data["description"].strip():
             event["description"] = data["description"].strip()
         if isinstance(data.get("topic_tags"), list) and data["topic_tags"]:
-            seeded = list(event.get("topic_tags") or [])
+            seeded = [t for t in (event.get("topic_tags") or []) if t in APPROVED_TAGS]
             claude_tags = [t for t in data["topic_tags"] if t in APPROVED_TAGS]
             merged: list[str] = []
             for t in [*seeded, *claude_tags]:
@@ -1242,13 +1402,13 @@ def main():
     print(f"Triangle Startup Events — {today} → {end_date}\n")
     all_events: list[dict] = []
 
-    print("[1/11] Lila Learning…")
+    print("[1/12] Lila Learning…")
     all_events.extend(fetch_lila_events(today, end_date))
 
-    print("\n[2/11] Luma — Raleigh-Durham Startup Week…")
+    print("\n[2/12] Luma — Raleigh-Durham Startup Week…")
     all_events.extend(fetch_luma_events("https://lu.ma/raleighdurhamstartupweek", today, end_date))
 
-    print("\n[3/11] Luma — Triangle Startup Calendar…")
+    print("\n[3/12] Luma — Triangle Startup Calendar…")
     all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-e7mpB5yqt2phl0T", today, end_date))
 
     meetup_sources = [
@@ -1259,16 +1419,19 @@ def main():
         ("triangle-techbreakfast",      "https://www.meetup.com/triangle-techbreakfast/"),
     ]
     for idx, (label, url) in enumerate(meetup_sources, start=4):
-        print(f"\n[{idx}/11] Meetup — {label}…")
+        print(f"\n[{idx}/12] Meetup — {label}…")
         all_events.extend(fetch_meetup_events(url, today, end_date))
 
-    print("\n[9/11] CEDNC…")
+    print("\n[9/12] CEDNC…")
     all_events.extend(fetch_cednc_events("https://cednc.org/events/", today, end_date))
 
-    print("\n[10/11] First Flight Venture Center…")
+    print("\n[10/12] First Flight Venture Center…")
     all_events.extend(fetch_ffvc_events("https://www.ffvcnc.org/ourevents", today, end_date))
 
-    print("\n[11/11] 1 Million Cups — Durham (Playwright + Claude)…")
+    print("\n[11/12] echo — Durham…")
+    all_events.extend(fetch_echo_events("https://www.echo-nc.org/", today, end_date))
+
+    print("\n[12/12] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
         "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
         client, today, end_date,
@@ -1282,6 +1445,8 @@ def main():
 
     for ev in all_events:
         _seed_keyword_tags(ev)
+        if re.search(r"1 million cups", ev.get("name", ""), re.I):
+            ev["host"] = "echo"
 
     print("\nEnriching events via Claude (description, tags, event_type)…")
     all_events = enrich_events(all_events, client)
