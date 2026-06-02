@@ -1267,24 +1267,47 @@ def _seed_keyword_tags(event: dict) -> None:
         event["topic_tags"] = tags
 
 
+_NOISE_URL_RE = re.compile(
+    r"https?://\S+(?:\([^)]*\))?",  # bare URLs and markdown-style URL(link) pairs
+    re.I,
+)
+_NOISE_PHRASES_RE = re.compile(
+    r"(rsvp|register|coupon|early.bird|ticket|price|pay|sign.?up|must attend|"
+    r"does not grant|to attend|see all|exact det|previous speakers?)[^.!?\n]*[.!?\n]?",
+    re.I,
+)
+
+
+def _clean_raw_description(text: str) -> str:
+    """Strip URLs, registration instructions, and promotional noise from a raw description."""
+    text = _NOISE_URL_RE.sub("", text)
+    text = _NOISE_PHRASES_RE.sub("", text)
+    # Collapse whitespace / stray punctuation left behind
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+    return text.strip()
+
+
 def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
     """Ask Claude to enrich a single event: description, topic_tags, event_type."""
-    name = event.get("name", "")
-    raw_desc = event.get("description", "").strip()
+    name     = event.get("name", "")
+    raw_desc = _clean_raw_description(event.get("description", "").strip())
     location = event.get("location", "")
-    host = event.get("host", "")
+    host     = event.get("host", "")
     approved = ", ".join(APPROVED_TAGS)
 
     prompt = (
         f"Given this event, return a JSON object with exactly three keys:\n"
-        f'- "description": one sentence (20-35 words), third person, specific details, no marketing fluff. '
-        f'If no raw description is provided, write one based on the event name and host.\n'
+        f'- "description": 1-2 sentences (20-50 words), third person, plain language. '
+        f"Describe what actually happens at the event and who it's for. "
+        f"Do not mention registration, ticket prices, URLs, speaker name-drops, or promotional language. "
+        f"If the raw description is unhelpful or empty, write one from scratch based on the event name and host.\n"
         f'- "topic_tags": JSON array of 1-3 tags chosen strictly from this list: [{approved}]. '
         f'Pick the most specific tags that match — use "Community" only for purely social gatherings '
         f'with no specific topic. Prefer tags like "Networking", "Workshop", "AI & Data", "Fundraising", etc.\n'
         f'- "event_type": single most specific tag from the same list (must appear in topic_tags)\n\n'
         f"Event name: {name}\n"
-        f"Raw description: {raw_desc[:700] if raw_desc else '(none)'}\n"
+        f"Raw description: {raw_desc[:600] if raw_desc else '(none)'}\n"
         f"Location: {location}\n"
         f"Host: {host}\n\n"
         f"Return only valid JSON, no markdown fences."
@@ -1335,6 +1358,86 @@ def enrich_events(events: list[dict], client: anthropic.Anthropic) -> list[dict]
         time.sleep(0.1)
     print(f"  Enriched {len(events)} event(s)")
     return events
+
+
+def _rescue_start_time(event: dict, client: anthropic.Anthropic) -> bool:
+    """
+    Fetch the event's source URL and ask Claude to extract the start (and end)
+    time. Updates event in-place. Returns True if a real time was found.
+    """
+    url = event.get("source_url", "").strip()
+    if not url:
+        return False
+    try:
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        text = BeautifulSoup(resp.text, "html.parser").get_text(" ", strip=True)[:6000]
+    except Exception as exc:
+        print(f"    WARNING: Could not fetch {url} for time rescue — {exc}")
+        return False
+
+    prompt = (
+        f"The following is text from an event page. "
+        f"Extract the event start time and end time. "
+        f"Return ONLY a JSON object with two keys: "
+        f'"start_time" (HH:MM in 24-hour format, or empty string if not found) and '
+        f'"end_time" (HH:MM in 24-hour format, or empty string if not found). '
+        f"Do not include any other text.\n\n"
+        f"Page text:\n{text}"
+    )
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=60,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
+        data = json.loads(raw)
+        start = str(data.get("start_time", "")).strip()
+        end   = str(data.get("end_time", "")).strip()
+        if start and start != "00:00":
+            event["start_time"] = start
+            if end and end != "00:00":
+                event["end_time"] = end
+            return True
+    except Exception as exc:
+        print(f"    WARNING: Time rescue Claude call failed for {event.get('name')!r} — {exc}")
+    return False
+
+
+def rescue_missing_times(events: list[dict], client: anthropic.Anthropic) -> list[dict]:
+    """
+    For events with start_time == '00:00' or empty, attempt to fetch the real
+    time from the source page. Events where time rescue fails are dropped so
+    they never reach Airtable with a bogus midnight time.
+    Returns the filtered list (rescued + events that never needed rescuing).
+    """
+    needs_rescue = [e for e in events if not e.get("start_time") or e["start_time"] == "00:00"]
+    fine         = [e for e in events if e.get("start_time") and e["start_time"] != "00:00"]
+
+    if not needs_rescue:
+        return events
+
+    print(f"\nTime rescue: {len(needs_rescue)} event(s) missing a start time…")
+    rescued = []
+    dropped = []
+    for ev in needs_rescue:
+        print(f"  Rescuing: {ev.get('name')!r}")
+        found = _rescue_start_time(ev, client)
+        if found:
+            print(f"    → found {ev['start_time']}")
+            rescued.append(ev)
+        else:
+            print(f"    → no time found, dropping from Airtable push")
+            dropped.append(ev)
+        time.sleep(0.2)
+
+    if dropped:
+        print(f"  Dropped {len(dropped)} event(s) with unresolvable start times.")
+
+    return fine + rescued
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -1400,6 +1503,8 @@ def main():
 
     print("\nEnriching events via Claude (description, tags, event_type)…")
     all_events = enrich_events(all_events, client)
+
+    all_events = rescue_missing_times(all_events, client)
 
     print("Computing friendly dates…")
     for ev in all_events:
