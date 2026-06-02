@@ -733,148 +733,75 @@ def fetch_cednc_events(calendar_url: str, today: str, end_date: str) -> list[dic
     return events
 
 
-# ── echo-nc.org ───────────────────────────────────────────────────────────────
+# ── echo-nc.org (Playwright + Claude) ─────────────────────────────────────────
 
-def _parse_echo_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict | None:
-    """Fetch and parse a single echo-nc.org event detail page."""
+def fetch_echo_events(base_url: str, client: anthropic.Anthropic, today: str, end_date: str) -> list[dict]:
+    """Render echo-nc.org homepage with Playwright, then extract events via Claude."""
+    print(f"  Launching Playwright for echo…")
     try:
-        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"    SKIP (fetch failed): {url} — {exc}")
-        return None
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    # Title from <h1> or <title>
-    h1 = soup.find("h1")
-    name = h1.get_text(strip=True) if h1 else ""
-    if not name:
-        title_tag = soup.find("title")
-        name = title_tag.get_text(strip=True).split("|")[0].strip() if title_tag else ""
-
-    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
-        tag.decompose()
-    text = soup.get_text(separator="\n", strip=True)
-
-    # Skip virtual events
-    if re.search(r"\bvirtual\b|\bonline\b|\bwebinar\b", text[:600], re.I):
-        print(f"    SKIP (virtual): {name}")
-        return None
-
-    # Date: "Wednesday, June 25, 2026" or "June 25, 2026"
-    date_match = re.search(
-        r"(?:\w+,\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)"
-        r"\s+(\d{1,2}),?\s+(\d{4})",
-        text,
-    )
-    if not date_match:
-        print(f"    SKIP (no date found): {name}")
-        return None
-
-    try:
-        event_dt = datetime.strptime(
-            f"{date_match.group(1)} {date_match.group(2)} {date_match.group(3)}", "%B %d %Y"
-        )
-    except ValueError:
-        print(f"    SKIP (bad date): {name}")
-        return None
-
-    if event_dt < today_dt or event_dt > end_dt:
-        return None
-
-    date_str = event_dt.strftime("%Y-%m-%d")
-
-    # Times: "9:00 AM" / "10:00 AM" — look for two consecutive AM/PM times
-    time_match = re.search(
-        r"(\d{1,2}:\d{2}\s*[AP]M)\s*[-–—to]+\s*(\d{1,2}:\d{2}\s*[AP]M)", text, re.I
-    )
-    if time_match:
-        try:
-            start_time = datetime.strptime(time_match.group(1).strip(), "%I:%M %p").strftime("%H:%M")
-        except ValueError:
-            start_time = "00:00"
-        try:
-            end_time = datetime.strptime(time_match.group(2).strip(), "%I:%M %p").strftime("%H:%M")
-        except ValueError:
-            end_time = ""
-    else:
-        single = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)", text, re.I)
-        if single:
-            try:
-                start_time = datetime.strptime(single.group(1).strip(), "%I:%M %p").strftime("%H:%M")
-            except ValueError:
-                start_time = "00:00"
-        else:
-            start_time = "00:00"
-        end_time = ""
-
-    # Location: prefer full address with street number
-    addr_match = re.search(
-        r"\d+\s+\w[^\n]{5,80},\s+\w[^\n]{2,40}(?:NC|North Carolina)[^\n]{0,30}\d{5}", text
-    )
-    if addr_match:
-        location = addr_match.group(0).strip()
-    else:
-        loc_match = re.search(
-            r"(?:echo Community Hub[^\n]{0,60}|[A-Z][^.!\n]{3,60},\s+"
-            r"(?:Raleigh|Durham|Chapel Hill|Cary|RTP)[^.!\n]{0,40})",
-            text,
-        )
-        location = loc_match.group(0).strip() if loc_match else ""
-
-    # Description: first substantial paragraph after the title
-    desc = ""
-    for line in text.splitlines():
-        line = line.strip()
-        if len(line) > 60 and name.lower() not in line.lower():
-            desc = line
-            break
-
-    return {
-        "name": name,
-        "date": date_str,
-        "start_time": start_time,
-        "end_time": end_time,
-        "location": location,
-        "description": desc,
-        "host": "echo",
-        "city": "Durham",
-        "topic_tags": [],
-        "source_url": url,
-    }
-
-
-def fetch_echo_events(base_url: str, today: str, end_date: str) -> list[dict]:
-    """Scrape echo-nc.org homepage for event links, then fetch each detail page."""
-    today_dt = datetime.strptime(today, "%Y-%m-%d")
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-
-    try:
-        resp = requests.get(base_url, headers=BROWSER_HEADERS, timeout=30)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"  SKIP (fetch failed): echo-nc.org — {exc}")
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
+            page.goto(base_url, timeout=30000)
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(3000)
+            text = page.inner_text("body")
+            links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            browser.close()
+    except Exception as exc:
+        print(f"  SKIP (Playwright failed): echo — {exc}")
         return []
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    seen: set[str] = set()
-    detail_urls: list[str] = []
-    for a in soup.find_all("a", href=re.compile(r"^/events/\w")):
-        href = a["href"]
-        full = f"https://www.echo-nc.org{href}"
-        if full not in seen:
-            seen.add(full)
-            detail_urls.append(full)
+    lines = [l for l in text.splitlines() if l.strip()]
+    page_text = "\n".join(lines)[:12000]
 
-    print(f"  echo: {len(detail_urls)} event link(s) found")
+    if links:
+        event_links = [l for l in dict.fromkeys(links) if "echo-nc.org/events/" in l]
+        if event_links:
+            page_text += "\n\nLINKS FOUND ON PAGE:\n" + "\n".join(event_links[:50])
 
-    events: list[dict] = []
-    for url in detail_urls:
-        ev = _parse_echo_detail(url, today_dt, end_dt)
-        if ev:
-            events.append(ev)
+    if not page_text.strip() or len(page_text) < 100:
+        print(f"  SKIP: echo page returned no content")
+        return []
 
+    print(f"  echo page: {len(page_text)} chars — sending to Claude…")
+
+    prompt = (
+        f"Extract all upcoming in-person events from this echo (echo-nc.org) page content. "
+        f"echo is a Durham-based entrepreneurship hub. "
+        f"Today is {today}. Only include events between {today} and {end_date}. "
+        f"Return ONLY a valid JSON array starting with [ and ending with ]. "
+        f"Each object must have: name (string), date (YYYY-MM-DD), "
+        f"start_time (HH:MM or 00:00 if unknown), end_time (HH:MM or empty string), "
+        f"location (venue name and full address), "
+        f"topic_tags (array of 1-3 tags chosen strictly from: {', '.join(APPROVED_TAGS)}), "
+        f"event_type (single most specific tag from the same list, must appear in topic_tags), "
+        f"description (1-3 sentences about the event), "
+        f"host (always 'echo'), "
+        f"city (always 'Durham'), "
+        f"source_url (direct URL to the specific event from LINKS FOUND ON PAGE, "
+        f"NOT the homepage {base_url!r}). "
+        f"Return [] if no upcoming in-person events found.\n\n"
+        f"Page content:\n{page_text}"
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:
+        print(f"  ERROR: Claude call failed for echo — {exc}")
+        return []
+
+    raw = ""
+    for block in response.content:
+        if hasattr(block, "type") and block.type == "text":
+            raw += block.text
+
+    events = parse_events(raw)
+    print(f"  echo: {len(events)} event(s) extracted by Claude")
     return events
 
 
@@ -1428,8 +1355,8 @@ def main():
     print("\n[10/12] First Flight Venture Center…")
     all_events.extend(fetch_ffvc_events("https://www.ffvcnc.org/ourevents", today, end_date))
 
-    print("\n[11/12] echo — Durham…")
-    all_events.extend(fetch_echo_events("https://www.echo-nc.org/", today, end_date))
+    print("\n[11/12] echo — Durham (Playwright + Claude)…")
+    all_events.extend(fetch_echo_events("https://www.echo-nc.org/", client, today, end_date))
 
     print("\n[12/12] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
