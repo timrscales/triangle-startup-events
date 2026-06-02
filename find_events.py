@@ -582,6 +582,9 @@ def fetch_1mc_events(
             raw += block.text
 
     events = parse_events(raw)
+    # Clear tags from the extraction prompt — _enrich_one will set them cleanly
+    for ev in events:
+        ev["topic_tags"] = []
     print(f"  1MC: {len(events)} event(s) extracted by Claude")
     return events
 
@@ -800,6 +803,9 @@ def fetch_echo_events(base_url: str, client: anthropic.Anthropic, today: str, en
             raw += block.text
 
     events = parse_events(raw)
+    # Clear tags from the extraction prompt — _enrich_one will set them cleanly
+    for ev in events:
+        ev["topic_tags"] = []
     print(f"  echo: {len(events)} event(s) extracted by Claude")
     return events
 
