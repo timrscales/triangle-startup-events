@@ -742,9 +742,8 @@ def fetch_echo_events(base_url: str, client: anthropic.Anthropic, today: str, en
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
-            page.goto(base_url, timeout=30000)
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(3000)
+            page.goto(base_url, timeout=60000, wait_until="load")
+            page.wait_for_timeout(2000)
             text = page.inner_text("body")
             links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
             browser.close()
