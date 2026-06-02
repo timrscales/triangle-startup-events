@@ -739,8 +739,17 @@ const navBtn = {
 
 // ──────────────────────── Footer ────────────────────────
 const Footer = ({ device }) => {
-  const [subscribeOpen, setSubscribeOpen] = useState(false)
   if (device === "mobile") return null
+  const openSubscribe = () => {
+    const w = 560, h = 620
+    const left = Math.round(window.screenX + (window.outerWidth - w) / 2)
+    const top  = Math.round(window.screenY + (window.outerHeight - h) / 2)
+    window.open(
+      "https://airtable.com/apprt7MFT8PcVhFY4/pagz7K3Bc4Se3QGPC/form",
+      "subscribe",
+      `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    )
+  }
   const linkStyle = { color: "var(--ink-2)", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }
   return (
     <div style={{
@@ -762,7 +771,7 @@ const Footer = ({ device }) => {
           Get a free weekly update every Monday.
         </span>
         <button
-          onClick={() => setSubscribeOpen(true)}
+          onClick={openSubscribe}
           style={{
             background: "#009DE0", color: "#fff", border: 0,
             padding: "10px 16px", fontSize: 13, fontWeight: 800,
@@ -774,43 +783,6 @@ const Footer = ({ device }) => {
         >
           Subscribe for Free
         </button>
-        {subscribeOpen && (
-          <>
-            <div
-              onClick={() => setSubscribeOpen(false)}
-              style={{
-                position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)",
-                zIndex: 1000, animation: "tseScrim 180ms var(--ease-out)"
-              }}
-            />
-            <div style={{
-              position: "fixed", top: "50%", left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: "min(560px, 95vw)", height: "min(600px, 90vh)",
-              zIndex: 1001, background: "var(--paper)",
-              boxShadow: "var(--shadow-3)",
-              display: "flex", flexDirection: "column",
-              animation: "tseFadeScale 160ms var(--ease-out)",
-            }}>
-              <button
-                onClick={() => setSubscribeOpen(false)}
-                aria-label="Close"
-                style={{
-                  position: "absolute", top: 10, right: 10,
-                  width: 32, height: 32, background: "rgba(255,255,255,0.9)",
-                  border: "1px solid var(--line)", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "var(--ink)", zIndex: 1,
-                }}
-              ><XIcon /></button>
-              <iframe
-                src="https://airtable.com/apprt7MFT8PcVhFY4/pagz7K3Bc4Se3QGPC/form"
-                style={{ flex: 1, border: 0, width: "100%", height: "100%" }}
-                title="Subscribe to Triangle Startup Events"
-              />
-            </div>
-          </>
-        )}
       </div>
     </div>
   )
