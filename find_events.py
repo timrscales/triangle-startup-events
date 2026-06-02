@@ -36,7 +36,6 @@ APPROVED_TAGS = [
     "Workshop",
     "Pitch Practice",
     "Panel Discussion",
-    "Community",
     "Fundraising",
     "Sales",
     "Mentorship",
