@@ -738,74 +738,93 @@ def fetch_cednc_events(calendar_url: str, today: str, end_date: str) -> list[dic
 # ── echo-nc.org (Playwright + Claude) ─────────────────────────────────────────
 
 def fetch_echo_events(base_url: str, client: anthropic.Anthropic, today: str, end_date: str) -> list[dict]:
-    """Render echo-nc.org homepage with Playwright, then extract events via Claude."""
+    """Render echo-nc.org event detail pages with Playwright, extract via Claude."""
     print(f"  Launching Playwright for echo…")
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
-            page.goto(base_url, timeout=60000, wait_until="load")
-            page.wait_for_timeout(2000)
-            text = page.inner_text("body")
-            links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            pw_page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
+
+            # Step 1: render homepage to collect event detail URLs
+            pw_page.goto(base_url, timeout=60000, wait_until="load")
+            pw_page.wait_for_timeout(2000)
+            all_links = pw_page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            event_urls = list(dict.fromkeys(
+                l for l in all_links if "echo-nc.org/events/" in l
+            ))
+            print(f"  echo: {len(event_urls)} event link(s) found")
+
+            # Step 2: render each detail page for full data (including times)
+            detail_texts: list[tuple[str, str]] = []  # (url, page_text)
+            for url in event_urls:
+                try:
+                    pw_page.goto(url, timeout=60000, wait_until="load")
+                    pw_page.wait_for_timeout(1500)
+                    text = pw_page.inner_text("body")
+                    lines = [l for l in text.splitlines() if l.strip()]
+                    detail_texts.append((url, "\n".join(lines)[:8000]))
+                except Exception as exc:
+                    print(f"    SKIP (detail fetch failed): {url} — {exc}")
+
             browser.close()
     except Exception as exc:
         print(f"  SKIP (Playwright failed): echo — {exc}")
         return []
 
-    lines = [l for l in text.splitlines() if l.strip()]
-    page_text = "\n".join(lines)[:12000]
-
-    if links:
-        event_links = [l for l in dict.fromkeys(links) if "echo-nc.org/events/" in l]
-        if event_links:
-            page_text += "\n\nLINKS FOUND ON PAGE:\n" + "\n".join(event_links[:50])
-
-    if not page_text.strip() or len(page_text) < 100:
-        print(f"  SKIP: echo page returned no content")
+    if not detail_texts:
+        print(f"  SKIP: echo — no detail pages loaded")
         return []
 
-    print(f"  echo page: {len(page_text)} chars — sending to Claude…")
+    # Step 3: send each detail page to Claude individually
+    events: list[dict] = []
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-    prompt = (
-        f"Extract all upcoming in-person events from this echo (echo-nc.org) page content. "
-        f"echo is a Durham-based entrepreneurship hub. "
-        f"Today is {today}. Only include events between {today} and {end_date}. "
-        f"Return ONLY a valid JSON array starting with [ and ending with ]. "
-        f"Each object must have: name (string), date (YYYY-MM-DD), "
-        f"start_time (HH:MM or 00:00 if unknown), end_time (HH:MM or empty string), "
-        f"location (venue name and full address), "
-        f"topic_tags (array of 1-3 tags chosen strictly from: {', '.join(APPROVED_TAGS)}), "
-        f"event_type (single most specific tag from the same list, must appear in topic_tags), "
-        f"description (1-3 sentences about the event), "
-        f"host (always 'echo'), "
-        f"city (always 'Durham'), "
-        f"source_url (direct URL to the specific event from LINKS FOUND ON PAGE, "
-        f"NOT the homepage {base_url!r}). "
-        f"Return [] if no upcoming in-person events found.\n\n"
-        f"Page content:\n{page_text}"
-    )
-
-    try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
+    for source_url, page_text in detail_texts:
+        prompt = (
+            f"Extract the single event from this echo-nc.org event detail page. "
+            f"Today is {today}. Only return the event if its date is between {today} and {end_date}. "
+            f"Return ONLY a valid JSON object (not an array) with these keys: "
+            f"name (string), date (YYYY-MM-DD), "
+            f"start_time (HH:MM in 24h, or 00:00 if unknown), "
+            f"end_time (HH:MM in 24h, or empty string if unknown), "
+            f"location (venue name and full address), "
+            f"description (1-3 sentences about the event), "
+            f"host (always 'echo'), city (always 'Durham'). "
+            f"Return null if the event is outside the date range or is virtual.\n\n"
+            f"Page content:\n{page_text}"
         )
-    except Exception as exc:
-        print(f"  ERROR: Claude call failed for echo — {exc}")
-        return []
+        try:
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = "".join(
+                b.text for b in response.content
+                if hasattr(b, "type") and b.type == "text"
+            ).strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
+            if not raw or raw.lower() == "null":
+                continue
+            ev = json.loads(raw)
+            if not isinstance(ev, dict) or not ev.get("name") or not ev.get("date"):
+                continue
+            # Validate date range
+            try:
+                ev_dt = datetime.strptime(ev["date"], "%Y-%m-%d")
+                if ev_dt < today_dt or ev_dt > end_dt:
+                    continue
+            except ValueError:
+                continue
+            ev["source_url"] = source_url
+            ev["topic_tags"] = []  # _enrich_one will set cleanly
+            events.append(ev)
+        except Exception as exc:
+            print(f"    WARNING: Claude extraction failed for {source_url} — {exc}")
 
-    raw = ""
-    for block in response.content:
-        if hasattr(block, "type") and block.type == "text":
-            raw += block.text
-
-    events = parse_events(raw)
-    # Clear tags from the extraction prompt — _enrich_one will set them cleanly
-    for ev in events:
-        ev["topic_tags"] = []
-    print(f"  echo: {len(events)} event(s) extracted by Claude")
+    print(f"  echo: {len(events)} in-range event(s)")
     return events
 
 
