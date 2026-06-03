@@ -238,14 +238,7 @@ export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, 
             }}>{totalActiveFilters}</span>
           )}
         </button>
-        <a href="/orgs.html" style={{
-          display: 'inline-flex', alignItems: 'center',
-          padding: '0 12px', height: 36, fontSize: 12, fontWeight: 800,
-          fontFamily: 'inherit', textDecoration: 'none',
-          background: 'var(--paper-2)', color: 'var(--ink-3)',
-          border: '1px solid var(--line)',
-        }}>Organizations</a>
-        <button onClick={onSubmit} style={ctaBtn}>Submit an Event</button>
+<button onClick={onSubmit} style={ctaBtn}>Submit an Event</button>
       </div>
     </div>
   )
