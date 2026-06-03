@@ -1145,6 +1145,13 @@ def resolve_org(host: str, orgs: dict[str, str], fuzzy_threshold: float = 0.82) 
 
     key = host.lower()
 
+    # 0. Canonical overrides — force specific orgs regardless of exact name
+    if "daretoshift" in key:
+        canonical = "daretoshift"
+        if canonical in orgs:
+            print(f"  ORG MATCH (canonical override): {host!r} → 'DareToShift'")
+            return orgs[canonical]
+
     # 1. Exact match
     if key in orgs:
         return orgs[key]
@@ -1194,6 +1201,65 @@ def format_friendly_date(date_str: str, start_time: str, end_time: str) -> str:
     return date_part
 
 
+def _split_location(location: str) -> tuple[str, str]:
+    """
+    Split a combined location string into (venue_name, street_address).
+
+    Examples:
+      "American Underground, 320 Blackwell St, Durham, NC 27701"
+        → ("American Underground", "320 Blackwell St, Durham, NC 27701")
+      "320 Blackwell St, Durham, NC 27701"
+        → ("", "320 Blackwell St, Durham, NC 27701")
+      "Frontier RTP"
+        → ("Frontier RTP", "")
+    """
+    if not location:
+        return "", ""
+    parts = [p.strip() for p in location.split(",")]
+    if len(parts) <= 1:
+        return location.strip(), ""
+    # If first part starts with a digit, the whole thing is an address with no venue name
+    if re.match(r"^\d+\s+", parts[0]):
+        return "", location.strip()
+    # First part is the venue name; the rest is the address
+    venue = parts[0]
+    address = ", ".join(parts[1:]).strip()
+    return venue, address
+
+
+def _normalize_time(t: str) -> str:
+    """
+    Normalize any time string to HH:MM (24-hour). Returns empty string if unparseable.
+
+    Handles:
+      HH:MM          → pass-through (already correct)
+      H:MM           → zero-pad hour
+      HH:MM:SS       → strip seconds
+      h:MMam/pm      → convert to 24h
+      ham / hpm      → hour-only am/pm
+      h:MM AM/PM     → convert to 24h (with space)
+    """
+    t = t.strip()
+    if not t or t == "00:00":
+        return t
+
+    _FMT_ATTEMPTS = [
+        "%H:%M",        # 14:30
+        "%H:%M:%S",     # 14:30:00
+        "%I:%M%p",      # 2:30PM / 2:30pm
+        "%I:%M %p",     # 2:30 PM
+        "%I%p",         # 2PM / 2pm
+        "%I %p",        # 2 PM
+    ]
+    normalized = t.upper().replace(".", "").replace(" ", " ")
+    for fmt in _FMT_ATTEMPTS:
+        try:
+            return datetime.strptime(normalized, fmt).strftime("%H:%M")
+        except ValueError:
+            continue
+    return t  # return as-is if nothing matches; will surface as a data issue
+
+
 def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
     """Write a single event to Airtable, linking Organizer as a record ID."""
     headers = {
@@ -1204,8 +1270,10 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
     fields: dict = {
         "Name": str(event.get("name", "")).strip(),
         "Date": str(event.get("date", "")).strip(),
-        "Start Time": str(event.get("start_time", "")).strip(),
+        "Start Time": _normalize_time(str(event.get("start_time", ""))),
         "Location": str(event.get("location", "")).strip(),
+        "Location Name": _split_location(str(event.get("location", "")))[0],
+        "Location Address": _split_location(str(event.get("location", "")))[1],
         "Description": str(event.get("description", "")).strip(),
         "Source URL": str(event.get("source_url", "")).strip(),
         "Paid": not bool(event["is_free"]),
@@ -1213,7 +1281,7 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
     org_rec_id = resolve_org(event.get("host", ""), orgs)
     if org_rec_id:
         fields["Organizer"] = [org_rec_id]  # linked record field requires an array
-    end_time = str(event.get("end_time", "")).strip()
+    end_time = _normalize_time(str(event.get("end_time", "")))
     if end_time:
         fields["End Time"] = end_time
     tags = event.get("topic_tags")
@@ -1455,13 +1523,13 @@ def main():
     print(f"Triangle Startup Events — {today} → {end_date}\n")
     all_events: list[dict] = []
 
-    print("[1/12] Lila Learning…")
+    print("[1/13] Lila Learning…")
     all_events.extend(fetch_lila_events(today, end_date))
 
-    print("\n[2/12] Luma — Raleigh-Durham Startup Week…")
+    print("\n[2/13] Luma — Raleigh-Durham Startup Week…")
     all_events.extend(fetch_luma_events("https://lu.ma/raleighdurhamstartupweek", today, end_date))
 
-    print("\n[3/12] Luma — Triangle Startup Calendar…")
+    print("\n[3/13] Luma — Triangle Startup Calendar…")
     all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-e7mpB5yqt2phl0T", today, end_date))
 
     meetup_sources = [
@@ -1472,19 +1540,22 @@ def main():
         ("triangle-techbreakfast",      "https://www.meetup.com/triangle-techbreakfast/"),
     ]
     for idx, (label, url) in enumerate(meetup_sources, start=4):
-        print(f"\n[{idx}/12] Meetup — {label}…")
+        print(f"\n[{idx}/13] Meetup — {label}…")
         all_events.extend(fetch_meetup_events(url, today, end_date))
 
-    print("\n[9/12] CEDNC…")
+    print("\n[9/13] CEDNC…")
     all_events.extend(fetch_cednc_events("https://cednc.org/events/", today, end_date))
 
-    print("\n[10/12] First Flight Venture Center…")
+    print("\n[10/13] First Flight Venture Center…")
     all_events.extend(fetch_ffvc_events("https://www.ffvcnc.org/ourevents", today, end_date))
 
-    print("\n[11/12] echo — Durham (Playwright + Claude)…")
+    print("\n[11/13] echo — Durham (Playwright + Claude)…")
     all_events.extend(fetch_echo_events("https://www.echo-nc.org/", client, today, end_date))
 
-    print("\n[12/12] 1 Million Cups — Durham (Playwright + Claude)…")
+    print("\n[12/13] Bullhouse…")
+    all_events.extend(fetch_luma_events("https://luma.com/bullhouse", today, end_date))
+
+    print("\n[13/13] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
         "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
         client, today, end_date,

@@ -1,18 +1,17 @@
-name: Daily Startup Events Finder
+name: Weekly Email and LinkedIn Draft
 
 on:
   schedule:
-    - cron: '0 14 * * *'  # 10:00 AM ET (UTC-4 in EDT)
+    - cron: '0 15 * * 1'  # 11:00 AM ET on Mondays (UTC-4 in EDT), after daily.yml
   workflow_dispatch:       # Allow manual runs from the Actions tab
 
 permissions:
   contents: read
-  actions: write           # Required to trigger deploy.yml
 
 jobs:
-  find-events:
+  weekly-drafts:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -27,36 +26,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Playwright Chromium
-        run: playwright install chromium
-
-      - name: Find and sync events
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        run: python find_events.py
-
-      - name: Trigger calendar deploy
-        if: success()
-        run: gh workflow run deploy.yml --ref main
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Write Gmail credentials
         run: |
           echo '${{ secrets.GMAIL_CREDENTIALS_JSON }}' > gmail_credentials.json
           echo '${{ secrets.GMAIL_TOKEN_JSON }}' > gmail_token.json
 
-      - name: Check for dead links
+      - name: Draft weekly subscriber email
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           GMAIL_CREDENTIALS_FILE: gmail_credentials.json
           GMAIL_TOKEN_FILE: gmail_token.json
-        run: python check_links.py
+        run: python draft_email.py
 
-      - name: Send approval digest
+      - name: Send LinkedIn post draft
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           GMAIL_CREDENTIALS_FILE: gmail_credentials.json
           GMAIL_TOKEN_FILE: gmail_token.json
-        run: python approval_digest.py
+        run: python linkedin_post.py
