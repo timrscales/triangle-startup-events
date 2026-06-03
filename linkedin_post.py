@@ -57,7 +57,7 @@ def fetch_upcoming_events(start: date, end: date) -> list[dict]:
         "fields[]": [
             "Name", "Date", "Start Time", "End Time",
             "Location", "City", "Description", "Source URL",
-            "Paid", "Organizer", "Approved", "Archived",
+            "Paid", "Organization", "Approved", "Archived",
         ],
     }
     records = []
@@ -73,13 +73,13 @@ def fetch_upcoming_events(start: date, end: date) -> list[dict]:
         if not offset:
             break
 
-    org_ids = {oid for r in records for oid in r.get("fields", {}).get("Organizer", [])}
+    org_ids = {oid for r in records for oid in r.get("fields", {}).get("Organization", [])}
     org_names = _fetch_org_names(org_ids)
 
     events = []
     for r in records:
         f = r.get("fields", {})
-        org_id = (f.get("Organizer") or [None])[0]
+        org_id = (f.get("Organization") or [None])[0]
         events.append({
             "name":        f.get("Name", ""),
             "date":        f.get("Date", ""),
