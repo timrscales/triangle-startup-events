@@ -65,7 +65,6 @@ jobs:
 
           # ── Organizations ──────────────────────────────────────────────
           orgs_by_id = {}   # rec_id -> org name
-          org_records_by_id = {}  # rec_id -> full org record
           org_profiles = {} # org name -> profile dict (for events page)
           for r in fetch_all("Organizations"):
               f = r.get("fields", {})
@@ -73,7 +72,6 @@ jobs:
               if not name:
                   continue
               orgs_by_id[r["id"]] = name
-              org_records_by_id[r["id"]] = r
               org_profiles[name] = {
                   "description": f.get("Description", ""),
                   "website":     f.get("Website", ""),
@@ -119,58 +117,6 @@ jobs:
               })
           print(f"Loaded {len(events)} approved event(s)")
 
-          # ── Build orgs list for /orgs.html ────────────────────────────
-          # Fetch upcoming events to get names per org
-          from datetime import date
-          today_str = date.today().isoformat()
-          upcoming_event_records = fetch_all("Events", {
-              "filterByFormula": f"AND({{Approved}}=TRUE(), {{Date}}>=\"{today_str}\")",
-              "sort[0][field]": "Date",
-              "sort[0][direction]": "asc",
-          })
-          # Map org record id -> list of upcoming event names
-          events_by_org_id = {}
-          for r in upcoming_event_records:
-              f = r.get("fields", {})
-              for org_id in (f.get("Organization") or []):
-                  events_by_org_id.setdefault(org_id, []).append(f.get("Name", ""))
-
-          # Fetch programs
-          program_records = fetch_all("Programs")
-          programs_by_id = {r["id"]: r.get("fields", {}).get("Program Name", "") for r in program_records}
-
-          orgs_list = []
-          for rec_id, r in org_records_by_id.items():
-              f = r.get("fields", {})
-              name = f.get("Organization Name", "").strip()
-              # org_types: array of select objects -> names
-              raw_types = f.get("Organization Type") or []
-              org_types = [t["name"] if isinstance(t, dict) else t for t in raw_types]
-              raw_stages = f.get("Stage Focus") or []
-              stage_focus = [s["name"] if isinstance(s, dict) else s for s in raw_stages]
-              # linked event names (upcoming)
-              event_names = events_by_org_id.get(rec_id, [])
-              # linked program names
-              prog_ids = f.get("Programs") or []
-              program_names = [programs_by_id.get(pid, "") for pid in prog_ids if programs_by_id.get(pid)]
-              orgs_list.append({
-                  "id":            rec_id,
-                  "name":          name,
-                  "description":   f.get("Description", ""),
-                  "website":       f.get("Website", ""),
-                  "linkedin":      f.get("LinkedIn", ""),
-                  "instagram":     f.get("Instagram", ""),
-                  "address":       f.get("Address", ""),
-                  "org_types":     org_types,
-                  "stage_focus":   stage_focus,
-                  "event_count":   len(event_names),
-                  "event_names":   event_names[:6],
-                  "program_count": len(program_names),
-                  "program_names": program_names,
-              })
-          orgs_list.sort(key=lambda o: o["name"].lower())
-          print(f"Built {len(orgs_list)} org records for /orgs.html")
-
           def safe_json(obj):
               s = json.dumps(obj, ensure_ascii=False)
               return s.replace("</", "<\\/")
@@ -188,17 +134,6 @@ jobs:
           html = html.replace("__ORG_PROFILES_JSON__", safe_json(org_profiles))
           dist_index.write_text(html, encoding="utf-8")
           print("Injected events data into dist/index.html")
-
-          # ── Inject into dist/orgs.html ─────────────────────────────────
-          dist_orgs = pathlib.Path("dist/orgs.html")
-          orgs_html = dist_orgs.read_text(encoding="utf-8")
-
-          if "__ORGS_JSON__" not in orgs_html:
-              raise RuntimeError("Placeholder __ORGS_JSON__ not found in dist/orgs.html")
-
-          orgs_html = orgs_html.replace("__ORGS_JSON__", safe_json(orgs_list))
-          dist_orgs.write_text(orgs_html, encoding="utf-8")
-          print("Injected orgs data into dist/orgs.html")
 
           print("All injections complete.")
           PYEOF
