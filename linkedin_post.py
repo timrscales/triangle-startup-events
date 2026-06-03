@@ -44,8 +44,8 @@ def fetch_upcoming_events(start: date, end: date) -> list[dict]:
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Events"
     formula = (
         f"AND("
-        f"IS_AFTER({{Date}}, DATEADD('{start - timedelta(days=1)}', 0, 'days')), "
-        f"IS_BEFORE({{Date}}, DATEADD('{end + timedelta(days=1)}', 0, 'days'))"
+        f"IS_AFTER({{Date}}, '{start - timedelta(days=1)}'), "
+        f"IS_BEFORE({{Date}}, '{end + timedelta(days=1)}')"
         f")"
     )
     params = {
@@ -66,6 +66,8 @@ def fetch_upcoming_events(start: date, end: date) -> list[dict]:
         if offset:
             params["offset"] = offset
         resp = requests.get(url, headers=AT_HEADERS(), params=params, timeout=30)
+        if not resp.ok:
+            print(f"Airtable error {resp.status_code}: {resp.text}", file=sys.stderr)
         resp.raise_for_status()
         data = resp.json()
         records.extend(data.get("records", []))
