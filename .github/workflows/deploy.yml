@@ -54,6 +54,8 @@ jobs:
               records = []
               while True:
                   resp = requests.get(url, headers=headers, params=p, timeout=30)
+                  if not resp.ok:
+                      print(f"Airtable error {resp.status_code} on {table}: {resp.text}")
                   resp.raise_for_status()
                   data = resp.json()
                   records.extend(data.get("records", []))
@@ -111,7 +113,7 @@ jobs:
                   "event_type":    f.get("Event Type", ""),
                   "topic_tags":    f.get("Topic Tags", []),
                   "source_url":    f.get("Source URL", ""),
-                  "host":          resolve_org(f.get("Organizer")),
+                  "host":          resolve_org(f.get("Organization")),
                   "editors_pick":  bool(f.get("Editors Pick", False)),
                   "is_free":       not bool(f.get("Paid", False)),
               })
