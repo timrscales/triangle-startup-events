@@ -32,9 +32,6 @@ BROWSER_HEADERS = {
 }
 
 APPROVED_TAGS = [
-    "Networking",
-    "Workshop",
-    "Pitch Practice",
     "Panel Discussion",
     "Fundraising",
     "Sales",
@@ -48,7 +45,6 @@ APPROVED_TAGS = [
     "Finance",
     "Investor Meetup",
     "Accelerator",
-    "Demo Day",
     "Hardware & Deeptech",
     "Climate & Sustainability",
     "Social Impact",
@@ -58,6 +54,38 @@ APPROVED_TAGS = [
     "Latino Founders",
     "LGBTQ+ Founders",
     "Student Founders",
+]
+
+ALLOWED_FORMAT = [
+    "workshop",
+    "networking",
+    "pitch_practice",
+    "demo_day",
+    "office_hours",
+    "accelerator_info_session",
+]
+
+ALLOWED_STAGE_FOCUS = [
+    "Idea_Stage",
+    "Building",
+    "Early_Traction",
+    "Scaling",
+]
+
+ALLOWED_INDUSTRY = [
+    "healthtech",
+    "fintech",
+    "climate_tech",
+    "B2B_SaaS",
+    "edtech",
+    "proptech",
+    "supply_chain",
+    "consumer",
+    "marketplaces",
+    "deeptech",
+    "hardware",
+    "AI",
+    "no_specific_industry",
 ]
 
 _TRIANGLE_CITIES = [
@@ -218,14 +246,8 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
         description = " ".join(lines[4:8])[:350]
 
     tags = []
-    if re.search(r"\bpitch\b|\bpitching\b", text, re.I):
-        tags.append("Pitch Practice")
     if re.search(r"\binvest\b", text, re.I):
         tags.append("Investor Meetup")
-    if re.search(r"\bnetwork\b", text, re.I):
-        tags.append("Networking")
-    if re.search(r"\bworkshop\b|\bhands.on\b", text, re.I):
-        tags.append("Workshop")
     if re.search(r"\bai\b|artificial intelligence|machine learning", text, re.I):
         tags.append("AI & Data")
 
@@ -491,8 +513,6 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
             tags.append("AI & Data")
         if re.search(r"\bfundrais", description, re.I):
             tags.append("Fundraising")
-        if re.search(r"\bpitch\b|\bpitching\b", description, re.I):
-            tags.append("Pitch Practice")
 
         events.append({
             "name": ev.get("title", "").strip(),
@@ -943,14 +963,8 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
                         pass
 
             tags = []
-            if re.search(r"\bpitch\b", title, re.I):
-                tags.append("Pitch Practice")
-            if re.search(r"\bnetwork\b", title, re.I):
-                tags.append("Networking")
             if re.search(r"\bai\b|artificial intelligence", title, re.I):
                 tags.append("AI & Data")
-            if re.search(r"\bdemo\b", title, re.I):
-                tags.append("Demo Day")
 
             events.append({
                 "name": title,
@@ -1291,6 +1305,15 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
             for t in tags
             if str(t).strip().strip('"').strip("'") in APPROVED_TAGS
         ]
+    fmt = event.get("format")
+    if isinstance(fmt, list) and fmt:
+        fields["Format"] = [v for v in fmt if v in ALLOWED_FORMAT]
+    stage = event.get("stage_focus")
+    if isinstance(stage, list) and stage:
+        fields["Stage Focus"] = [v for v in stage if v in ALLOWED_STAGE_FOCUS]
+    industry = event.get("industry")
+    if isinstance(industry, list) and industry:
+        fields["Industry"] = [v for v in industry if v in ALLOWED_INDUSTRY]
     city = str(event.get("city", "")).strip()
     if city:
         fields["City"] = city
@@ -1357,23 +1380,33 @@ def _clean_raw_description(text: str) -> str:
 
 
 def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
-    """Ask Claude to enrich a single event: description, topic_tags, event_type."""
+    """Ask Claude to enrich a single event: description, topic_tags, event_type, format, stage_focus, industry."""
     name     = event.get("name", "")
     raw_desc = _clean_raw_description(event.get("description", "").strip())
     location = event.get("location", "")
     host     = event.get("host", "")
     approved = ", ".join(APPROVED_TAGS)
+    fmt_opts = ", ".join(ALLOWED_FORMAT)
+    stage_opts = ", ".join(ALLOWED_STAGE_FOCUS)
+    industry_opts = ", ".join(ALLOWED_INDUSTRY)
 
     prompt = (
-        f"Given this event, return a JSON object with exactly three keys:\n"
+        f"Given this event, return a JSON object with exactly six keys:\n"
         f'- "description": 1-2 sentences (20-50 words), third person, plain language. '
         f"Describe what actually happens at the event and who it's for. "
         f"Do not mention registration, ticket prices, URLs, speaker name-drops, or promotional language. "
         f"If the raw description is unhelpful or empty, write one from scratch based on the event name and host.\n"
-        f'- "topic_tags": JSON array of 1-3 tags chosen strictly from this list: [{approved}]. '
-        f'Pick the most specific tags that match — use "Community" only for purely social gatherings '
-        f'with no specific topic. Prefer tags like "Networking", "Workshop", "AI & Data", "Fundraising", etc.\n'
-        f'- "event_type": single most specific tag from the same list (must appear in topic_tags)\n\n'
+        f'- "topic_tags": JSON array of 1-3 tags chosen strictly from: [{approved}]. '
+        f"Pick the most specific tags that match.\n"
+        f'- "event_type": single most specific tag from the topic_tags list (must appear in topic_tags)\n'
+        f'- "format": JSON array of one or more values strictly from: [{fmt_opts}]. '
+        f"Assign all that meaningfully apply — e.g. a workshop with networking gets both. "
+        f"Reason from the event title, description, and host org name.\n"
+        f'- "stage_focus": JSON array of one or more values strictly from: [{stage_opts}]. '
+        f"Use multiple if the event genuinely serves multiple stages; assign all four if truly stage-agnostic.\n"
+        f'- "industry": JSON array of one or more values strictly from: [{industry_opts}]. '
+        f'Use "no_specific_industry" only if nothing else applies — never combine it with specific tags. '
+        f"Reason from event title, description, and host org name.\n\n"
         f"Event name: {name}\n"
         f"Raw description: {raw_desc[:600] if raw_desc else '(none)'}\n"
         f"Location: {location}\n"
@@ -1383,7 +1416,7 @@ def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=400,
+            max_tokens=700,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = "".join(
@@ -1412,10 +1445,45 @@ def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
         if isinstance(data.get("event_type"), str) and data["event_type"] in APPROVED_TAGS:
             event["event_type"] = data["event_type"]
         else:
-            event["event_type"] = (event.get("topic_tags") or ["Networking"])[0]
+            event["event_type"] = (event.get("topic_tags") or [None])[0]
+
+        # Validate and store format
+        raw_fmt = data.get("format")
+        if isinstance(raw_fmt, list):
+            valid = [v for v in raw_fmt if v in ALLOWED_FORMAT]
+            invalid = [v for v in raw_fmt if v not in ALLOWED_FORMAT]
+            if invalid:
+                print(f"    WARNING: Skipping invalid format value(s) for {name!r}: {invalid}")
+            if valid:
+                event["format"] = valid
+
+        # Validate and store stage_focus
+        raw_stage = data.get("stage_focus")
+        if isinstance(raw_stage, list):
+            valid = [v for v in raw_stage if v in ALLOWED_STAGE_FOCUS]
+            invalid = [v for v in raw_stage if v not in ALLOWED_STAGE_FOCUS]
+            if invalid:
+                print(f"    WARNING: Skipping invalid stage_focus value(s) for {name!r}: {invalid}")
+            if valid:
+                event["stage_focus"] = valid
+
+        # Validate and store industry
+        raw_industry = data.get("industry")
+        if isinstance(raw_industry, list):
+            valid = [v for v in raw_industry if v in ALLOWED_INDUSTRY]
+            invalid = [v for v in raw_industry if v not in ALLOWED_INDUSTRY]
+            if invalid:
+                print(f"    WARNING: Skipping invalid industry value(s) for {name!r}: {invalid}")
+            # Enforce: no_specific_industry must not be combined with specific tags
+            if "no_specific_industry" in valid and len(valid) > 1:
+                print(f"    WARNING: Dropping no_specific_industry from {name!r} — combined with specific tags")
+                valid = [v for v in valid if v != "no_specific_industry"]
+            if valid:
+                event["industry"] = valid
+
     except Exception as exc:
         print(f"    WARNING: Enrichment failed for {name!r} — {exc}")
-        event.setdefault("event_type", (event.get("topic_tags") or ["Networking"])[0])
+        event.setdefault("event_type", (event.get("topic_tags") or [None])[0])
     return event
 
 
