@@ -1294,7 +1294,7 @@ def create_event_record(event: dict, orgs: dict[str, str]) -> dict:
     }
     org_rec_id = resolve_org(event.get("host", ""), orgs)
     if org_rec_id:
-        fields["Organizer"] = [org_rec_id]  # linked record field requires an array
+        fields["Organization"] = [org_rec_id]  # linked record field requires an array
     end_time = _normalize_time(str(event.get("end_time", "")))
     if end_time:
         fields["End Time"] = end_time
