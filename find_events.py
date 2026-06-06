@@ -32,10 +32,8 @@ BROWSER_HEADERS = {
 }
 
 APPROVED_TAGS = [
-    "Panel Discussion",
     "Fundraising",
     "Sales",
-    "Mentorship",
     "AI & Data",
     "Tech & Product",
     "Life Science",
@@ -43,8 +41,6 @@ APPROVED_TAGS = [
     "Hiring",
     "Legal",
     "Finance",
-    "Investor Meetup",
-    "Accelerator",
     "Hardware & Deeptech",
     "Climate & Sustainability",
     "Social Impact",
