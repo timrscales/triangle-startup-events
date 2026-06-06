@@ -54,6 +54,7 @@ function normalizeEvent(e) {
     audience: e.audience || [],
     topic_tags: e.topic_tags || [],
     description: e.description || '',
+    short_description: e.short_description || '',
     location: e.location || '',
     city: e.city || cityFromLocation(e.location),
     friendly_date: e.friendly_date || '',
@@ -267,9 +268,9 @@ const DetailPanel = ({ event, anchorRect, root, onClose, onSelectOrg, fromOrg, o
           </div>
         </div>
 
-        {event.description && (
+        {(event.short_description || event.description) && (
           <p style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55, margin: "4px 0 0" }}>
-            {event.description}
+            {event.short_description || event.description}
           </p>
         )}
 
