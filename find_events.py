@@ -9,7 +9,8 @@ import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
 
 import anthropic
 import requests
@@ -241,12 +242,6 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
         lines = [l for l in text.splitlines() if l.strip()]
         description = " ".join(lines[4:8])[:350]
 
-    tags = []
-    if re.search(r"\binvest\b", text, re.I):
-        tags.append("Investor Meetup")
-    if re.search(r"\bai\b|artificial intelligence|machine learning", text, re.I):
-        tags.append("AI & Data")
-
     return {
         "name": name,
         "date": date_fmt,
@@ -345,8 +340,7 @@ def fetch_luma_events(calendar_url: str, today: str, end_date: str) -> list[dict
         start_raw = ev.get("start_at", "") or ""
         try:
             start_utc = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
-            # Convert to Eastern (EDT = UTC-4)
-            start_local = start_utc.astimezone(timezone(timedelta(hours=-4)))
+            start_local = start_utc.astimezone(ZoneInfo("America/New_York"))
             date_str = start_local.strftime("%Y-%m-%d")
             start_time_str = start_local.strftime("%H:%M")
         except (ValueError, AttributeError):
@@ -504,19 +498,13 @@ def fetch_meetup_events(calendar_url: str, today: str, end_date: str) -> list[di
         group_ref = ev.get("group", {}).get("__ref", "") if isinstance(ev.get("group"), dict) else ""
         host = groups.get(group_ref, "")
 
-        tags = []
-        if re.search(r"\bai\b|artificial intelligence|machine learning", description, re.I):
-            tags.append("AI & Data")
-        if re.search(r"\bfundrais", description, re.I):
-            tags.append("Fundraising")
-
         events.append({
             "name": ev.get("title", "").strip(),
             "date": date_str,
             "start_time": start_time_str,
             "end_time": end_time_str,
             "location": location,
-            "topic_tags": list(dict.fromkeys(tags)),
+            "topic_tags": [],
             "description": description,
             "host": host,
             "city": city,
@@ -612,6 +600,11 @@ TRIANGLE_TERMS = re.compile(
     re.I,
 )
 
+NON_TRIANGLE = re.compile(
+    r"\bcoastal\b|\btriad\b|\bcharlotte\b|\bgreensboro\b|\bwilmington\b|\basheville\b",
+    re.I,
+)
+
 
 def _parse_cednc_article(article, today_dt: datetime, end_dt: datetime) -> dict | None:
     """Extract event data from a single CEDNC <article> element."""
@@ -622,10 +615,6 @@ def _parse_cednc_article(article, today_dt: datetime, end_dt: datetime) -> dict 
     detail_url = title_tag["href"]
 
     # Skip invite-only, clearly non-startup, or non-Triangle events by name
-    NON_TRIANGLE = re.compile(
-        r"\bcoastal\b|\btriad\b|\bcharlotte\b|\bgreensboro\b|\bwilmington\b|\basheville\b",
-        re.I,
-    )
     if re.search(r"invite.?only|carrot conference", name, re.I):
         return None
     if NON_TRIANGLE.search(name):
@@ -958,17 +947,13 @@ def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict
                     except ValueError:
                         pass
 
-            tags = []
-            if re.search(r"\bai\b|artificial intelligence", title, re.I):
-                tags.append("AI & Data")
-
             events.append({
                 "name": title,
                 "date": event_dt.strftime("%Y-%m-%d"),
                 "start_time": start_time,
                 "end_time": end_time,
                 "location": _FFVC_LOCATION,
-                "topic_tags": list(dict.fromkeys(tags)),
+                "topic_tags": [],
                 "description": description or "",
                 "host": "First Flight Venture Center",
                 "city": "RTP",
@@ -1082,70 +1067,6 @@ class ExistingEvents:
             return "name+date"
 
         return None
-
-
-def _fetch_table_field_choices(table_id: str, field_id: str) -> list[dict] | None:
-    """Return the current choices list for a multipleSelects field, or None on error.
-
-    The Airtable Meta API exposes individual field info via the table endpoint
-    (GET /v0/meta/bases/{baseId}/tables/{tableId}), not a per-field URL.
-    """
-    url = f"https://api.airtable.com/v0/meta/bases/{AIRTABLE_BASE_ID}/tables/{table_id}"
-    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=20)
-        resp.raise_for_status()
-        for field in resp.json().get("fields", []):
-            if field.get("id") == field_id:
-                return field.get("options", {}).get("choices", [])
-        return []  # field not found — treat as empty
-    except Exception as exc:
-        print(f"  WARNING: Could not fetch table schema for choice sync — {exc}")
-        return None
-
-
-def _ensure_select_choices(
-    table_id: str, field_id: str, required_names: list[str], label: str
-) -> None:
-    """Add any missing choice names to an Airtable multipleSelects field.
-
-    Fetches current choices via the table meta endpoint, then PATCHes the field
-    if any required names are absent. Existing choices are preserved.
-    Logs a warning and continues if the call fails.
-    """
-    current_choices = _fetch_table_field_choices(table_id, field_id)
-    if current_choices is None:
-        return  # error already logged
-
-    existing_names = {c["name"] for c in current_choices}
-    to_add = [name for name in required_names if name not in existing_names]
-
-    if not to_add:
-        return
-
-    print(f"  Adding missing {label} choices: {to_add}")
-    new_choices = current_choices + [{"name": name} for name in to_add]
-    patch_url = f"https://api.airtable.com/v0/meta/bases/{AIRTABLE_BASE_ID}/tables/{table_id}/fields/{field_id}"
-    try:
-        patch_resp = requests.patch(
-            patch_url,
-            headers={"Authorization": f"Bearer {AIRTABLE_API_KEY}", "Content-Type": "application/json"},
-            json={"options": {"choices": new_choices}},
-            timeout=20,
-        )
-        patch_resp.raise_for_status()
-        print(f"  {label} choices updated.")
-    except Exception as exc:
-        print(f"  WARNING: Could not update {label} choices — {exc}")
-
-
-def ensure_airtable_schema() -> None:
-    """Ensure all required select choices exist in Airtable before writing events."""
-    events_table_id = "tblT0CD7h3pVLc5ul"
-    _ensure_select_choices(events_table_id, "fldKyM8jpGeqvchVY", APPROVED_TAGS,    "Topic Tags")
-    _ensure_select_choices(events_table_id, "fldnIknCPBHO4ExuC", ALLOWED_FORMAT,       "Format")
-    _ensure_select_choices(events_table_id, "fldTHZxWDJwrMZsP6", ALLOWED_STAGE_FOCUS,  "Stage Focus")
-    _ensure_select_choices(events_table_id, "fldFjGo5tKSq19VVr", ALLOWED_INDUSTRY,     "Industry")
 
 
 def get_existing_events() -> ExistingEvents:
@@ -1403,7 +1324,9 @@ def is_valid_event(event: dict) -> tuple[bool, str]:
 # Keyword → tag rules applied deterministically before Claude enrichment so
 # obvious cases stay tagged even when the model call fails or omits them.
 _KEYWORD_TAG_RULES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\bcoworking\b", re.I), "Coworking"),
+    (re.compile(r"\bcoworking\b", re.I),                                   "Coworking"),
+    (re.compile(r"\bai\b|artificial intelligence|machine learning", re.I), "AI & Data"),
+    (re.compile(r"\bfundrais", re.I),                                      "Fundraising"),
 ]
 
 
@@ -1711,9 +1634,6 @@ def main():
 
     for ev in all_events:
         ev["name"] = _strip_emojis(ev["name"])
-
-    print("Syncing Airtable select field choices…")
-    ensure_airtable_schema()
 
     print("Fetching organizations from Airtable…")
     orgs = load_orgs()
