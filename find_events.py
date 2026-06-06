@@ -1088,26 +1088,38 @@ class ExistingEvents:
         return None
 
 
+def _fetch_table_field_choices(table_id: str, field_id: str) -> list[dict] | None:
+    """Return the current choices list for a multipleSelects field, or None on error.
+
+    The Airtable Meta API exposes individual field info via the table endpoint
+    (GET /v0/meta/bases/{baseId}/tables/{tableId}), not a per-field URL.
+    """
+    url = f"https://api.airtable.com/v0/meta/bases/{AIRTABLE_BASE_ID}/tables/{table_id}"
+    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=20)
+        resp.raise_for_status()
+        for field in resp.json().get("fields", []):
+            if field.get("id") == field_id:
+                return field.get("options", {}).get("choices", [])
+        return []  # field not found — treat as empty
+    except Exception as exc:
+        print(f"  WARNING: Could not fetch table schema for choice sync — {exc}")
+        return None
+
+
 def _ensure_select_choices(
     table_id: str, field_id: str, required_names: list[str], label: str
 ) -> None:
     """Add any missing choice names to an Airtable multipleSelects field.
 
-    Uses the Airtable Meta API (PATCH /meta/bases/{baseId}/tables/{tableId}/fields/{fieldId}).
-    Existing choices are preserved; only missing ones are appended.
+    Fetches current choices via the table meta endpoint, then PATCHes the field
+    if any required names are absent. Existing choices are preserved.
     Logs a warning and continues if the call fails.
     """
-    meta_url = f"https://api.airtable.com/v0/meta/bases/{AIRTABLE_BASE_ID}/tables/{table_id}/fields/{field_id}"
-    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
-
-    # Fetch current choices
-    try:
-        resp = requests.get(meta_url, headers=headers, timeout=20)
-        resp.raise_for_status()
-        current_choices: list[dict] = resp.json().get("options", {}).get("choices", [])
-    except Exception as exc:
-        print(f"  WARNING: Could not fetch {label} field choices — {exc}")
-        return
+    current_choices = _fetch_table_field_choices(table_id, field_id)
+    if current_choices is None:
+        return  # error already logged
 
     existing_names = {c["name"] for c in current_choices}
     to_add = [name for name in required_names if name not in existing_names]
@@ -1117,10 +1129,11 @@ def _ensure_select_choices(
 
     print(f"  Adding missing {label} choices: {to_add}")
     new_choices = current_choices + [{"name": name} for name in to_add]
+    patch_url = f"https://api.airtable.com/v0/meta/bases/{AIRTABLE_BASE_ID}/tables/{table_id}/fields/{field_id}"
     try:
         patch_resp = requests.patch(
-            meta_url,
-            headers={**headers, "Content-Type": "application/json"},
+            patch_url,
+            headers={"Authorization": f"Bearer {AIRTABLE_API_KEY}", "Content-Type": "application/json"},
             json={"options": {"choices": new_choices}},
             timeout=20,
         )
