@@ -92,7 +92,7 @@ jobs:
 
           # ── Events ────────────────────────────────────────────────────
           event_records = fetch_all("Events", {
-              "filterByFormula": "{Approved}=TRUE()",
+              "filterByFormula": "AND({Approved}=TRUE(), {Archived}!=TRUE())",
               "sort[0][field]": "Date",
               "sort[0][direction]": "asc",
           })
@@ -119,6 +119,7 @@ jobs:
                   "stage_focus":   f.get("Stage Focus", []),
                   "industry":      f.get("Industry", []),
                   "format":        f.get("Format", []),
+                  "short_description": (f.get("Short description") or {}).get("value", "") if isinstance(f.get("Short description"), dict) else "",
               })
           print(f"Loaded {len(events)} approved event(s)")
 
