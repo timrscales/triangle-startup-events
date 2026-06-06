@@ -398,7 +398,6 @@ export function RecommendModal({ open, onClose, events }) {
   const [state, setState]             = useState("questionnaire")
   const [stage, setStage]             = useState(null)
   const [goals, setGoals]             = useState([])
-  const [industries, setIndustries]   = useState([])
   const [freeText, setFreeText]       = useState("")
   const [results, setResults]         = useState([])
   const [isPartialMatch, setIsPartialMatch] = useState(false)
@@ -417,10 +416,10 @@ export function RecommendModal({ open, onClose, events }) {
     return () => document.removeEventListener("keydown", handler)
   }, [open, onClose])
 
-  const hasAnswer = stage || goals.length > 0 || industries.length > 0 || freeText.trim().length > 0
+  const hasAnswer = stage || goals.length > 0 || freeText.trim().length > 0
 
   function handleFind() {
-    const { results: r, isPartialMatch: partial } = scoreEvents(events, { stage, goals, industries, freeText })
+    const { results: r, isPartialMatch: partial } = scoreEvents(events, { stage, goals, industries: [], freeText })
     setResults(r)
     setIsPartialMatch(partial)
     setState("results")
@@ -432,17 +431,6 @@ export function RecommendModal({ open, onClose, events }) {
 
   function toggleGoal(g) {
     setGoals(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])
-  }
-
-  function toggleIndustry(ind) {
-    if (ind === "No specific industry") {
-      setIndustries(prev => prev.includes(ind) ? [] : [ind])
-      return
-    }
-    setIndustries(prev => {
-      const without = prev.filter(x => x !== "No specific industry")
-      return without.includes(ind) ? without.filter(x => x !== ind) : [...without, ind]
-    })
   }
 
   if (!open) return null
@@ -457,13 +445,8 @@ export function RecommendModal({ open, onClose, events }) {
       ? "No exact matches"
       : `${matchCount} match${matchCount !== 1 ? "es" : ""} found`
 
-  const STAGES     = ["Idea stage", "Building", "Early traction", "Scaling"]
-  const GOALS      = ["Find customers", "Raise funding", "Build my team", "Learn a specific skill", "Find community"]
-  const INDUSTRIES = [
-    "Healthtech", "Fintech", "Climate tech", "B2B SaaS", "Edtech", "Proptech",
-    "Supply chain", "Consumer", "Marketplaces", "Deeptech", "Hardware", "AI",
-    "No specific industry",
-  ]
+  const STAGES = ["Idea stage", "Building", "Early traction", "Scaling"]
+  const GOALS  = ["Find customers", "Raise funding", "Build my team", "Learn a specific skill", "Find community"]
 
   return (
     <div
@@ -554,22 +537,7 @@ export function RecommendModal({ open, onClose, events }) {
               </div>
               <QDivider />
 
-              {/* Q3: Industry */}
-              <div style={{ padding: "16px 0" }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 10 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: "var(--ink)" }}>What's your industry?</span>
-                  <span style={{ fontSize: 11, color: "var(--muted)" }}>pick any that fit</span>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {INDUSTRIES.map(ind => (
-                    <Chip key={ind} label={ind} selected={industries.includes(ind)}
-                      onClick={() => toggleIndustry(ind)} prefix="✓ " />
-                  ))}
-                </div>
-              </div>
-              <QDivider />
-
-              {/* Q4: Free text */}
+              {/* Q3: Free text */}
               <div style={{ padding: "16px 0" }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 10 }}>
                   <span style={{ fontSize: 14, fontWeight: 800, color: "var(--ink)" }}>Anything specific you're looking for?</span>
@@ -622,7 +590,7 @@ export function RecommendModal({ open, onClose, events }) {
         }}>
           {isQuestionnaire ? (
             <>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>Takes about 20 seconds.</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Takes about 10 seconds.</span>
               <button
                 onClick={handleFind}
                 disabled={!hasAnswer}

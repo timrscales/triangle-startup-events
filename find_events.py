@@ -1088,6 +1088,57 @@ class ExistingEvents:
         return None
 
 
+def _ensure_select_choices(
+    table_id: str, field_id: str, required_names: list[str], label: str
+) -> None:
+    """Add any missing choice names to an Airtable multipleSelects field.
+
+    Uses the Airtable Meta API (PATCH /meta/bases/{baseId}/tables/{tableId}/fields/{fieldId}).
+    Existing choices are preserved; only missing ones are appended.
+    Logs a warning and continues if the call fails.
+    """
+    meta_url = f"https://api.airtable.com/v0/meta/bases/{AIRTABLE_BASE_ID}/tables/{table_id}/fields/{field_id}"
+    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+
+    # Fetch current choices
+    try:
+        resp = requests.get(meta_url, headers=headers, timeout=20)
+        resp.raise_for_status()
+        current_choices: list[dict] = resp.json().get("options", {}).get("choices", [])
+    except Exception as exc:
+        print(f"  WARNING: Could not fetch {label} field choices — {exc}")
+        return
+
+    existing_names = {c["name"] for c in current_choices}
+    to_add = [name for name in required_names if name not in existing_names]
+
+    if not to_add:
+        return
+
+    print(f"  Adding missing {label} choices: {to_add}")
+    new_choices = current_choices + [{"name": name} for name in to_add]
+    try:
+        patch_resp = requests.patch(
+            meta_url,
+            headers={**headers, "Content-Type": "application/json"},
+            json={"options": {"choices": new_choices}},
+            timeout=20,
+        )
+        patch_resp.raise_for_status()
+        print(f"  {label} choices updated.")
+    except Exception as exc:
+        print(f"  WARNING: Could not update {label} choices — {exc}")
+
+
+def ensure_airtable_schema() -> None:
+    """Ensure all required select choices exist in Airtable before writing events."""
+    events_table_id = "tblT0CD7h3pVLc5ul"
+    _ensure_select_choices(events_table_id, "fldKyM8jpGeqvchVY", APPROVED_TAGS,    "Topic Tags")
+    _ensure_select_choices(events_table_id, "fldnIknCPBHO4ExuC", ALLOWED_FORMAT,       "Format")
+    _ensure_select_choices(events_table_id, "fldTHZxWDJwrMZsP6", ALLOWED_STAGE_FOCUS,  "Stage Focus")
+    _ensure_select_choices(events_table_id, "fldFjGo5tKSq19VVr", ALLOWED_INDUSTRY,     "Industry")
+
+
 def get_existing_events() -> ExistingEvents:
     """Fetch all Airtable events and build a multi-key dedup index."""
     headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
@@ -1651,6 +1702,9 @@ def main():
 
     for ev in all_events:
         ev["name"] = _strip_emojis(ev["name"])
+
+    print("Syncing Airtable select field choices…")
+    ensure_airtable_schema()
 
     print("Fetching organizations from Airtable…")
     orgs = load_orgs()
