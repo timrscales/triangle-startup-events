@@ -106,7 +106,7 @@ export function applyFilters(events, f, search) {
 }
 
 // ──────────────────────── small UI atoms ────────────────────────
-export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, setSearchOpen, savedCount, filterOpen, setFilterOpen, totalActiveFilters }) => {
+export const TopBar = ({ device, view, setView, onSubmit, onRecommend, onSearch, searchOpen, setSearchOpen, savedCount, filterOpen, setFilterOpen, totalActiveFilters }) => {
   const [infoOpen, setInfoOpen] = useState(false)
   const isMobile = device === "mobile"
 
@@ -238,7 +238,8 @@ export const TopBar = ({ device, view, setView, onSubmit, onSearch, searchOpen, 
             }}>{totalActiveFilters}</span>
           )}
         </button>
-<button onClick={onSubmit} style={ctaBtn}>Submit an Event</button>
+        <button onClick={onSubmit} style={ghostBtn}>Submit an Event</button>
+        <button onClick={onRecommend} style={ctaBtn}>✨ Recommend events for me</button>
       </div>
     </div>
   )
@@ -308,6 +309,19 @@ export const ctaBtn = {
   padding: "10px 16px",
   fontSize: 13,
   fontWeight: 800,
+  letterSpacing: "0.01em",
+  fontFamily: "inherit",
+  cursor: "pointer",
+  transition: "background 120ms"
+}
+
+export const ghostBtn = {
+  background: "var(--paper)",
+  color: "var(--ink-2)",
+  border: "1px solid var(--line)",
+  padding: "10px 16px",
+  fontSize: 13,
+  fontWeight: 700,
   letterSpacing: "0.01em",
   fontFamily: "inherit",
   cursor: "pointer",

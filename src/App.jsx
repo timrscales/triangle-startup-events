@@ -12,6 +12,7 @@ import {
   PickBadge, PaidBadge,
 } from './views.jsx'
 import { useHash } from './useHash.js'
+import { RecommendModal } from './recommend.jsx'
 
 // ──────────────────────── Data layer ────────────────────────
 function stableId(e) {
@@ -795,6 +796,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   const [hash, setHash] = useHash()
   const [searchOpen, setSearchOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [recommendOpen, setRecommendOpen] = useState(false)
   const [anchorRect, setAnchorRect] = useState(null)
   const [fromOrg, setFromOrg] = useState(null)       // host name when event was opened from OrgPanel
   const [dayPopover, setDayPopover] = useState(null) // { date, anchorRect }
@@ -883,6 +885,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
         device={device}
         view={view} setView={setView}
         onSubmit={() => window.open(SUBMIT_URL, "_blank", "noopener,noreferrer")}
+        onRecommend={() => setRecommendOpen(true)}
         searchOpen={searchOpen} setSearchOpen={setSearchOpen}
         filterOpen={filterOpen} setFilterOpen={setFilterOpen}
         totalActiveFilters={totalActiveFilters} />
@@ -945,6 +948,11 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
       {dayPopover && (
         <DayPopover date={dayPopover.date} anchorRect={dayPopover.anchorRect} root={rootRef.current} events={dayPopoverEvents} onSelectEvent={selectEvent} onClose={() => setDayPopover(null)} device={device} />
       )}
+      <RecommendModal
+        open={recommendOpen}
+        onClose={() => setRecommendOpen(false)}
+        events={EVENTS}
+      />
     </div>
   )
 }

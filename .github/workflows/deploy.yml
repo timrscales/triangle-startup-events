@@ -104,7 +104,7 @@ jobs:
                   "id":            r["id"],
                   "name":          f.get("Name", ""),
                   "date":          f.get("Date", ""),
-                  "friendly_date": f.get("Friendly Date", ""),
+                  "friendly_date": f.get("Friendly Date/Time", ""),
                   "start_time":    f.get("Start Time", ""),
                   "end_time":      f.get("End Time", ""),
                   "location":      f.get("Location", ""),
@@ -116,6 +116,9 @@ jobs:
                   "host":          resolve_org(f.get("Organization")),
                   "editors_pick":  bool(f.get("Editors Pick", False)),
                   "is_free":       not bool(f.get("Paid", False)),
+                  "stage_focus":   f.get("Stage Focus", []),
+                  "industry":      f.get("Industry", []),
+                  "format":        f.get("Format", []),
               })
           print(f"Loaded {len(events)} approved event(s)")
 
