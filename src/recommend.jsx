@@ -93,9 +93,10 @@ function scoreEvents(events, answers) {
     let score = 0
     const reasons = [] // only semantic matches — not time/free bonuses
 
-    // ── Stage: direct field match +3 ────────────────────────────────────────
+    // ── Stage: direct field match +3, only if event is stage-specific (≤2 foci)
     if (stage && STAGE_AIRTABLE[stage]) {
-      if ((ev.stage_focus || []).includes(STAGE_AIRTABLE[stage])) {
+      const foci = ev.stage_focus || []
+      if (foci.length <= 2 && foci.includes(STAGE_AIRTABLE[stage])) {
         score += 3
         reasons.push("Your stage")
       }
@@ -247,10 +248,9 @@ function Chip({ label, selected, onClick, prefix }) {
 
 // ── Email capture ────────────────────────────────────────────────────────────
 function EmailCapture({ recommendations }) {
-  const [name, setName]         = useState("")
-  const [email, setEmail]       = useState("")
-  const [subscribe, setSubscribe] = useState(false)
-  const [status, setStatus]     = useState("idle") // idle | sending | sent | error
+  const [name, setName]   = useState("")
+  const [email, setEmail] = useState("")
+  const [status, setStatus] = useState("idle") // idle | sending | sent | error
 
   async function handleSend() {
     if (!name.trim() || !email.trim()) return
@@ -262,11 +262,11 @@ function EmailCapture({ recommendations }) {
       if (AIRTABLE_WEBHOOK_URL) {
         await fetch(AIRTABLE_WEBHOOK_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "text/plain" },
           body: JSON.stringify({
             name: name.trim(),
             email: email.trim(),
-            subscribe,
+            subscribe: true,
             eventsText,
             events: recommendations.map(r => ({
               name: r.ev.name,
@@ -294,7 +294,7 @@ function EmailCapture({ recommendations }) {
   return (
     <div style={{ border: "1px dashed var(--line)", background: "var(--paper-2)", padding: 16, marginTop: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: "var(--ink-2)", marginBottom: 10 }}>
-        Want us to email you this list?
+        Email me these events
       </div>
       {status === "sent" ? (
         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-mint-deep)" }}>
@@ -315,19 +315,15 @@ function EmailCapture({ recommendations }) {
                 fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap",
                 opacity: (!name.trim() || !email.trim()) ? 0.5 : 1,
               }}>
-              {status === "sending" ? "Sending…" : "Send it"}
+              {status === "sending" ? "Sending…" : "Send"}
             </button>
           </div>
           {status === "error" && (
             <div style={{ fontSize: 12, color: "#B30202", marginBottom: 8 }}>Something went wrong — try again.</div>
           )}
-          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
-            <input type="checkbox" checked={subscribe} onChange={e => setSubscribe(e.target.checked)}
-              style={{ marginTop: 2, flexShrink: 0 }} />
-            <span style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
-              Never miss an event. Subscribe for a free weekly update every Monday.
-            </span>
-          </label>
+          <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
+            You'll also receive weekly event updates. Opt-out any time.
+          </div>
         </>
       )}
     </div>
@@ -352,29 +348,22 @@ function EventCard({ result }) {
           {displayDesc}
         </div>
       )}
-      {reasons && reasons.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 11 }}>
-          <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, alignSelf: "center" }}>Matched:</span>
-          {reasons.map(r => (
-            <span key={r} style={{
-              fontSize: 11, fontWeight: 700, color: "var(--rdsw-blue-dark)",
-              background: "var(--paper-2)", border: "1px solid var(--line)",
-              padding: "2px 7px",
-            }}>{r}</span>
-          ))}
-        </div>
-      )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        {ev.city ? (
-          <span style={{
-            fontSize: 11, fontWeight: 700, color: "var(--ink-3)",
-            background: "var(--paper-2)", border: "1px solid var(--line)",
-            padding: "3px 7px",
-          }}>{ev.city}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        {reasons && reasons.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>Matched:</span>
+            {reasons.map(r => (
+              <span key={r} style={{
+                fontSize: 11, fontWeight: 700, color: "var(--rdsw-blue-dark)",
+                background: "var(--paper-2)", border: "1px solid var(--line)",
+                padding: "2px 7px",
+              }}>{r}</span>
+            ))}
+          </div>
         ) : <span />}
         {ev.source_url && (
           <a href={ev.source_url} target="_blank" rel="noopener noreferrer" style={{
-            display: "inline-block",
+            display: "inline-block", flexShrink: 0,
             background: ev.is_free !== false ? "#00C9A7" : "var(--cta-bg, var(--rdsw-blue))",
             color: ev.is_free !== false ? "#fff" : "var(--cta-fg, #fff)",
             fontSize: 12, fontWeight: 700, padding: "6px 12px",
@@ -474,12 +463,14 @@ export function RecommendModal({ open, onClose, events }) {
           padding: "22px 22px 16px", borderBottom: "1px solid var(--line)",
           position: "relative", flexShrink: 0,
         }}>
+          {!isQuestionnaire && (
           <div style={{
             fontSize: 11, fontWeight: 800, letterSpacing: "0.14em",
             color: "var(--muted)", marginBottom: 6, textTransform: "uppercase",
           }}>
             {eyebrow}
           </div>
+        )}
           <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--ink)" }}>
             {isQuestionnaire ? "Let's find your events" : "Here are your recommended events"}
           </div>
@@ -590,7 +581,7 @@ export function RecommendModal({ open, onClose, events }) {
         }}>
           {isQuestionnaire ? (
             <>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>Takes about 10 seconds.</span>
+              <span />
               <button
                 onClick={handleFind}
                 disabled={!hasAnswer}
