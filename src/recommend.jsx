@@ -516,7 +516,7 @@ export function RecommendModal({ open, onClose, events }) {
               {/* Q2: Goals */}
               <div style={{ padding: "16px 0" }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 10 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: "var(--ink)" }}>What's your primary goal?</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "var(--ink)" }}>What are you focused on right now?</span>
                   <span style={{ fontSize: 11, color: "var(--muted)" }}>pick all that apply</span>
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
