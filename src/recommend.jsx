@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const AIRTABLE_WEBHOOK_URL = "https://hooks.airtable.com/workflows/v1/genericWebhook/apprt7MFT8PcVhFY4/wfl2olwnrvqPVkJLI/wtrLGuYTufw0UguQF"
-
 // ── Scoring maps ────────────────────────────────────────────────────────────
 const GOAL_KEYWORDS = {
   "Find customers":         ["networking", "demo day", "showcase", "community"],
@@ -247,90 +245,6 @@ function Chip({ label, selected, onClick, prefix }) {
 }
 
 // ── Email capture ────────────────────────────────────────────────────────────
-function EmailCapture({ recommendations }) {
-  const [name, setName]   = useState("")
-  const [email, setEmail] = useState("")
-  const [status, setStatus] = useState("idle") // idle | sending | sent | error
-
-  async function handleSend() {
-    if (!name.trim() || !email.trim()) return
-    setStatus("sending")
-    const eventsText = recommendations.map((r, i) =>
-      `${i + 1}. ${r.ev.name}\n   ${fmtEventDate(r.ev)}\n   ${r.ev.source_url || ""}`
-    ).join("\n\n")
-    try {
-      if (AIRTABLE_WEBHOOK_URL) {
-        await fetch(AIRTABLE_WEBHOOK_URL, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "text/plain" },
-          body: JSON.stringify({
-            name: name.trim(),
-            email: email.trim(),
-            subscribe: true,
-            eventsText,
-            events: recommendations.map(r => ({
-              name: r.ev.name,
-              date: fmtEventDate(r.ev),
-              host: r.ev.host,
-              url: r.ev.source_url,
-            })),
-          }),
-        })
-      }
-      setStatus("sent")
-      setName("")
-      setEmail("")
-    } catch {
-      setStatus("error")
-    }
-  }
-
-  const inputStyle = {
-    border: "1px solid var(--line)", background: "var(--paper)",
-    padding: "10px 12px", fontSize: 14, fontFamily: "inherit",
-    color: "var(--ink)", outline: "none", minWidth: 0,
-  }
-
-  return (
-    <div style={{ border: "1px dashed var(--line)", background: "var(--paper-2)", padding: 16, marginTop: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: "var(--ink-2)", marginBottom: 10 }}>
-        Email me these events
-      </div>
-      {status === "sent" ? (
-        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-mint-deep)" }}>
-          ✓ Sent — check your inbox.
-        </div>
-      ) : (
-        <>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name"
-              style={{ ...inputStyle, flex: "1 1 100px" }} />
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address"
-              style={{ ...inputStyle, flex: "2 1 160px" }} />
-            <button onClick={handleSend}
-              disabled={status === "sending" || !name.trim() || !email.trim()}
-              style={{
-                background: "var(--ink)", color: "#fff", border: 0,
-                padding: "10px 16px", fontSize: 13, fontWeight: 800,
-                fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap",
-                opacity: (!name.trim() || !email.trim()) ? 0.5 : 1,
-              }}>
-              {status === "sending" ? "Sending…" : "Send"}
-            </button>
-          </div>
-          {status === "error" && (
-            <div style={{ fontSize: 12, color: "#B30202", marginBottom: 8 }}>Something went wrong — try again.</div>
-          )}
-          <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
-            You'll also receive weekly event updates. Opt-out any time.
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
 // ── Event result card ────────────────────────────────────────────────────────
 function EventCard({ result }) {
   const { ev, reasons } = result
@@ -571,7 +485,6 @@ export function RecommendModal({ open, onClose, events }) {
                   {results.map(r => <EventCard key={r.ev.id} result={r} />)}
                 </div>
               )}
-              {results.length > 0 && <EmailCapture recommendations={results} />}
             </div>
           )}
         </div>
