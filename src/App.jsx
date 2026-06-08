@@ -419,7 +419,7 @@ const LinkIcon = () =>
     <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
   </svg>
 
-const OrgLogo = ({ host, size = 56 }) => {
+const OrgLogo = ({ host, size = 56, logoSrc }) => {
   const initials = host.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase()
   const colors = [
     { bg: "#003D69", fg: "#fff" },
@@ -429,6 +429,25 @@ const OrgLogo = ({ host, size = 56 }) => {
     { bg: "#FC7777", fg: "#fff" },
   ]
   const col = colors[hashIndex(host, colors.length)]
+
+  if (logoSrc) {
+    return (
+      <div style={{
+        height: size, flexShrink: 0,
+        background: "#fff",
+        border: "1px solid var(--line)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 6, boxSizing: "border-box",
+      }}>
+        <img
+          src={logoSrc}
+          alt={host}
+          style={{ height: "100%", width: "auto", maxWidth: size * 3, objectFit: "contain", display: "block" }}
+        />
+      </div>
+    )
+  }
+
   return (
     <div style={{
       width: size, height: size, flexShrink: 0,
@@ -479,7 +498,7 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
           display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink)",
         }}><XIcon /></button>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16, paddingRight: 36 }}>
-          <OrgLogo host={host} size={isMobile ? 48 : 64} />
+          <OrgLogo host={host} size={isMobile ? 48 : 64} logoSrc={profile.logo} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>Organizer</div>
             <h2 style={{ fontSize: isMobile ? 20 : 26, fontWeight: 900, color: "var(--ink)", letterSpacing: "-0.015em", lineHeight: 1.1, margin: 0 }}>{host}</h2>
