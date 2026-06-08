@@ -1521,13 +1521,13 @@ def main():
     print(f"Triangle Startup Events — {today} → {end_date}\n")
     all_events: list[dict] = []
 
-    print("[1/13] Lila Learning…")
+    print("[1/14] Lila Learning…")
     all_events.extend(fetch_lila_events(today, end_date))
 
-    print("\n[2/13] Luma — Raleigh-Durham Startup Week…")
+    print("\n[2/14] Luma — Raleigh-Durham Startup Week…")
     all_events.extend(fetch_luma_events("https://lu.ma/raleighdurhamstartupweek", today, end_date))
 
-    print("\n[3/13] Luma — Triangle Startup Calendar…")
+    print("\n[3/14] Luma — Triangle Startup Calendar…")
     all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-e7mpB5yqt2phl0T", today, end_date))
 
     meetup_sources = [
@@ -1538,22 +1538,25 @@ def main():
         ("triangle-techbreakfast",      "https://www.meetup.com/triangle-techbreakfast/"),
     ]
     for idx, (label, url) in enumerate(meetup_sources, start=4):
-        print(f"\n[{idx}/13] Meetup — {label}…")
+        print(f"\n[{idx}/14] Meetup — {label}…")
         all_events.extend(fetch_meetup_events(url, today, end_date))
 
-    print("\n[9/13] CEDNC…")
+    print("\n[9/14] CEDNC…")
     all_events.extend(fetch_cednc_events("https://cednc.org/events/", today, end_date))
 
-    print("\n[10/13] First Flight Venture Center…")
+    print("\n[10/14] First Flight Venture Center…")
     all_events.extend(fetch_ffvc_events("https://launch.ffvcnc.org/events", client, today, end_date))
 
-    print("\n[11/13] echo — Durham (Playwright + Claude)…")
+    print("\n[11/14] echo — Durham (Playwright + Claude)…")
     all_events.extend(fetch_echo_events("https://www.echo-nc.org/", client, today, end_date))
 
-    print("\n[12/13] Bullhouse…")
+    print("\n[12/14] Bullhouse…")
     all_events.extend(fetch_luma_events("https://luma.com/bullhouse", today, end_date))
 
-    print("\n[13/13] 1 Million Cups — Durham (Playwright + Claude)…")
+    print("\n[13/14] Luma — ADVAgo…")
+    all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-jNLpChoAwyqDeSV", today, end_date))
+
+    print("\n[14/14] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
         "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
         client, today, end_date,
