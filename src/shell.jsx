@@ -105,9 +105,144 @@ export function applyFilters(events, f, search) {
   })
 }
 
+// ──────────────────────── SF-3 Search & Filter Popover ────────────────────────
+const SearchFilterPopover = ({ events, filters, setFilters, search, setSearch, resultCount, onClose }) => {
+  const inputRef = useRef(null)
+  const tags = useMemo(() => topTags(events, 8), [events])
+  const cities = useMemo(() => [...new Set(events.map(e => e.city).filter(Boolean))].sort(), [events])
+  const activeTags = filters.topics.map(t => t.toLowerCase())
+  const activeCities = filters.cities
+
+  const toggle = (tag) => setFilters(f => ({
+    ...f,
+    topics: f.topics.map(x => x.toLowerCase()).includes(tag.toLowerCase())
+      ? f.topics.filter(x => x.toLowerCase() !== tag.toLowerCase())
+      : [...f.topics, tag],
+  }))
+  const toggleCity = (city) => setFilters(f => ({
+    ...f,
+    cities: f.cities.includes(city) ? f.cities.filter(x => x !== city) : [...f.cities, city],
+  }))
+  const clearAll = () => { setSearch(''); setFilters({ cities: [], types: [], audiences: [], topics: [], free: 'all' }) }
+
+  const hasAny = search || activeTags.length > 0 || activeCities.length > 0
+
+  useEffect(() => {
+    if (inputRef.current) inputRef.current.focus()
+  }, [])
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+          width: 340, zIndex: 50,
+          background: 'var(--paper)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 8px 32px rgba(0,61,105,0.14)',
+          animation: 'sfPopover 140ms cubic-bezier(.2,.8,.2,1)',
+        }}
+      >
+        {/* Search row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}><SearchIcon /></span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search events…"
+            style={{
+              flex: 1, border: 'none', outline: 'none', background: 'transparent',
+              fontSize: 13, fontFamily: 'var(--font-sans)', color: 'var(--ink)',
+            }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>
+              <XIcon />
+            </button>
+          )}
+        </div>
+
+        {/* Topics */}
+        <div style={{ padding: '12px 14px 10px' }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 7 }}>Topics</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {tags.map(({ tag }) => {
+              const active = activeTags.includes(tag.toLowerCase())
+              const c = tagStyle(tag)
+              return (
+                <button key={tag} onClick={() => toggle(tag)} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '5px 9px', fontSize: 11, fontWeight: 700,
+                  fontFamily: 'var(--font-mono)', cursor: 'pointer',
+                  background: active ? c.fg : c.bg,
+                  color: active ? '#fff' : c.fg,
+                  border: `1.5px solid ${active ? c.fg : 'transparent'}`,
+                  whiteSpace: 'nowrap', transition: 'all 100ms',
+                }}>
+                  #{tag.replace(/\s+/g, '')}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* City */}
+        <div style={{ padding: '0 14px 10px', borderTop: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 7px' }}>City</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {cities.map(city => {
+              const active = activeCities.includes(city)
+              const cs = cityStyle(city)
+              return (
+                <button key={city} onClick={() => toggleCity(city)} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '5px 10px', fontSize: 12, fontWeight: 700,
+                  fontFamily: 'inherit', cursor: 'pointer',
+                  background: active ? cs.dot : cs.soft,
+                  color: active ? '#fff' : cs.deep,
+                  border: `1.5px solid ${active ? cs.dot : 'transparent'}`,
+                  whiteSpace: 'nowrap', transition: 'all 100ms',
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? 'rgba(255,255,255,0.8)' : cs.dot, flexShrink: 0 }} />
+                  {city}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Commit row — shown when any filter/search is active */}
+        {hasAny && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)' }}>
+            <button onClick={clearAll} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--muted)', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', padding: 0,
+            }}>Clear all</button>
+            <button onClick={onClose} style={{
+              background: 'var(--ink)', color: '#fff', border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 800, fontFamily: 'inherit', padding: '7px 14px',
+            }}>View {resultCount} result{resultCount !== 1 ? 's' : ''} →</button>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
 // ──────────────────────── small UI atoms ────────────────────────
-export const TopBar = ({ device, view, setView, onSubmit, onRecommend, onSearch, searchOpen, setSearchOpen, savedCount, filterOpen, setFilterOpen, totalActiveFilters }) => {
+export const TopBar = ({ device, view, setView, onSubmit, onRecommend, onSearch, searchOpen, setSearchOpen, savedCount, filterOpen, setFilterOpen, totalActiveFilters, events, filters, setFilters, search, setSearch, resultCount }) => {
   const [infoOpen, setInfoOpen] = useState(false)
+  const [popoverOpen, setPopoverOpen] = useState(false)
   const isMobile = device === "mobile"
 
   if (isMobile) {
@@ -131,29 +266,8 @@ export const TopBar = ({ device, view, setView, onSubmit, onRecommend, onSearch,
             <PlusIcon />
           </button>
         </div>
-        {/* Row 2: Filters button + view toggle */}
+        {/* Row 2: View toggle only (no Filters button — TODO: mobile SF-3 bottom sheet) */}
         <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", alignItems: "stretch" }}>
-          <button
-            onClick={() => setFilterOpen(true)}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 5,
-              padding: "0 11px", fontSize: 12, fontWeight: 800,
-              fontFamily: "inherit", cursor: "pointer", flexShrink: 0,
-              background: totalActiveFilters > 0 ? "var(--ink)" : "var(--paper-2)",
-              color: totalActiveFilters > 0 ? "#fff" : "var(--ink-2)",
-              border: `1px solid ${totalActiveFilters > 0 ? "var(--ink)" : "var(--line)"}`,
-            }}>
-            <FunnelIcon />
-            Filters
-            {totalActiveFilters > 0 && (
-              <span style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 16, height: 16, borderRadius: "50%",
-                background: "var(--rdsw-blue)", color: "#fff",
-                fontSize: 9, fontWeight: 900, letterSpacing: 0,
-              }}>{totalActiveFilters}</span>
-            )}
-          </button>
           <div style={{ flex: 1 }}>
             <ViewToggle view={view} setView={setView} isMobile={true} fullWidth={true} />
           </div>
@@ -186,49 +300,33 @@ export const TopBar = ({ device, view, setView, onSubmit, onRecommend, onSearch,
       gap: 20,
       flexWrap: "nowrap",
     }}>
-      {/* Logo + title */}
+      {/* Logo + title (no tagline) */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
         <Logomark size={36} />
-        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 16, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)", whiteSpace: "nowrap" }}>
-            Triangle Startup Events
-          </span>
-          <span style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, fontWeight: 500 }}>Curated startup events for founders and builders in the Triangle
-          </span>
-        </div>
+        <span style={{ fontSize: 20, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--ink)", whiteSpace: "nowrap" }}>
+          Triangle Startup Events
+        </span>
       </div>
 
       {/* View toggle */}
       <ViewToggle view={view} setView={setView} isMobile={false} />
 
-      {/* Right: search + filters + submit */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {/* Right: Search & Filter · Submit an Event · Recommend for me */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
         <button
-          onClick={() => setSearchOpen(!searchOpen)}
-          aria-label="Search"
+          onClick={() => setPopoverOpen(v => !v)}
+          aria-label="Search and filter events"
           style={{
-            display: "inline-flex", alignItems: "center", gap: 5,
-            padding: "0 12px", height: 36, fontSize: 12, fontWeight: 800,
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "9px 14px", fontSize: 13, fontWeight: 800,
             fontFamily: "inherit", cursor: "pointer",
-            background: searchOpen ? "var(--ink)" : "var(--paper-2)",
-            color: searchOpen ? "#fff" : "var(--ink-2)",
-            border: `1px solid ${searchOpen ? "var(--ink)" : "var(--line)"}`,
+            background: popoverOpen || totalActiveFilters > 0 ? "var(--ink)" : "var(--paper)",
+            color: popoverOpen || totalActiveFilters > 0 ? "#fff" : "var(--ink-2)",
+            border: `1px solid ${popoverOpen || totalActiveFilters > 0 ? "var(--ink)" : "var(--line)"}`,
+            transition: "all 120ms",
           }}>
           <SearchIcon />
-          Search
-        </button>
-        <button
-          onClick={() => setFilterOpen(true)}
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 5,
-            padding: "0 12px", height: 36, fontSize: 12, fontWeight: 800,
-            fontFamily: "inherit", cursor: "pointer",
-            background: totalActiveFilters > 0 ? "var(--ink)" : "var(--paper-2)",
-            color: totalActiveFilters > 0 ? "#fff" : "var(--ink-2)",
-            border: `1px solid ${totalActiveFilters > 0 ? "var(--ink)" : "var(--line)"}`,
-          }}>
-          <FunnelIcon />
-          Filters
+          Search & Filter
           {totalActiveFilters > 0 && (
             <span style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -238,8 +336,37 @@ export const TopBar = ({ device, view, setView, onSubmit, onRecommend, onSearch,
             }}>{totalActiveFilters}</span>
           )}
         </button>
-        <button onClick={onSubmit} style={ghostBtn}>Submit an Event</button>
-        <button onClick={onRecommend} style={ctaBtn}>✨ Recommend events for me</button>
+
+        <button onClick={onSubmit} style={{
+          display: "inline-flex", alignItems: "center",
+          padding: "9px 14px", fontSize: 13, fontWeight: 800,
+          fontFamily: "inherit", cursor: "pointer",
+          background: "var(--paper)", color: "var(--ink-2)",
+          border: "1px solid var(--line)",
+        }}>Submit an Event</button>
+
+        <button onClick={onRecommend} style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "9px 16px", fontSize: 13, fontWeight: 800,
+          fontFamily: "inherit", cursor: "pointer",
+          background: "var(--accent-mint)", color: "var(--rdsw-blue-dark)",
+          border: "none",
+        }}>
+          <SparkleIcon />
+          Recommend for me
+        </button>
+
+        {popoverOpen && (
+          <SearchFilterPopover
+            events={events}
+            filters={filters}
+            setFilters={setFilters}
+            search={search}
+            setSearch={setSearch}
+            resultCount={resultCount}
+            onClose={() => setPopoverOpen(false)}
+          />
+        )}
       </div>
     </div>
   )
@@ -260,7 +387,7 @@ export const Logomark = ({ size = 36 }) => {
 
 
 export const ViewToggle = ({ view, setView, isMobile, fullWidth }) => {
-  const views = ["Month", "Week", "List"]
+  const views = ["Month", "List"]
   return (
     <div style={{
       display: fullWidth ? "flex" : "inline-flex",
@@ -364,4 +491,9 @@ export const FunnelIcon = () =>
 export const InfoIcon = () =>
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" />
+  </svg>
+
+export const SparkleIcon = () =>
+<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
   </svg>

@@ -803,7 +803,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   const [dayPopover, setDayPopover] = useState(null) // { date, anchorRect }
   const [orgPanel, setOrgPanel] = useState(null)     // { host, sourceEventId }
 
-  const view = hash.view || 'Month'
+  const view = (hash.view === 'week' || hash.view === 'Week') ? 'Month' : (hash.view || 'Month')
   const cursor = useMemo(() => {
     if (!hash.date) return new Date(TODAY)
     try { return parseDate(hash.date) } catch { return new Date(TODAY) }
@@ -889,7 +889,11 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
         onRecommend={() => setRecommendOpen(true)}
         searchOpen={searchOpen} setSearchOpen={setSearchOpen}
         filterOpen={filterOpen} setFilterOpen={setFilterOpen}
-        totalActiveFilters={totalActiveFilters} />
+        totalActiveFilters={totalActiveFilters}
+        events={EVENTS}
+        filters={filters} setFilters={setFilters}
+        search={search} setSearch={setSearch}
+        resultCount={filteredAll.length} />
 
       <FilterBar
         device={device}
@@ -905,7 +909,8 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
         {view === "Month" && <MonthView device={device} cursor={cursor} events={filteredForView} onSelectEvent={selectEvent} onSelectDay={selectDay} />}
-        {view === "Week" && <WeekView device={device} cursor={cursor} events={filteredForView} onSelectEvent={selectEvent} />}
+        {/* WeekView removed from UI; component kept for reference */}
+        {/* {view === "Week" && <WeekView device={device} cursor={cursor} events={filteredForView} onSelectEvent={selectEvent} />} */}
         {view === "List" && <ListView device={device} events={filteredForView} onSelectEvent={selectEvent} cardVariant={cardVariant} />}
       </div>
 
