@@ -42,7 +42,7 @@ jobs:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         run: |
           python3 - <<'PYEOF'
-          import json, os, pathlib, requests
+          import base64, json, os, pathlib, requests
 
           API_KEY = os.environ["AIRTABLE_API_KEY"]
           BASE_ID = "apprt7MFT8PcVhFY4"
@@ -65,6 +65,18 @@ jobs:
                   p["offset"] = offset
               return records
 
+          def logo_data_uri(attachment):
+              """Download an Airtable attachment and return a base64 data URI, or None on failure."""
+              try:
+                  resp = requests.get(attachment["url"], timeout=15)
+                  resp.raise_for_status()
+                  mime = attachment.get("type", "image/png")
+                  b64 = base64.b64encode(resp.content).decode()
+                  return f"data:{mime};base64,{b64}"
+              except Exception as e:
+                  print(f"  Warning: failed to download logo ({attachment.get('filename')}): {e}")
+                  return None
+
           # ── Organizations ──────────────────────────────────────────────
           orgs_by_id = {}   # rec_id -> org name
           org_profiles = {} # org name -> profile dict (for events page)
@@ -74,13 +86,21 @@ jobs:
               if not name:
                   continue
               orgs_by_id[r["id"]] = name
+
+              # Logo: take first attachment, download, embed as data URI
+              logo = None
+              attachments = f.get("Logo") or []
+              if attachments:
+                  logo = logo_data_uri(attachments[0])
+
               org_profiles[name] = {
                   "description": f.get("Description", ""),
                   "website":     f.get("Website", ""),
                   "address":     f.get("Address", ""),
-                  "logo":        None,
+                  "logo":        logo,
               }
-          print(f"Loaded {len(org_profiles)} organization(s)")
+          logos_loaded = sum(1 for p in org_profiles.values() if p["logo"])
+          print(f"Loaded {len(org_profiles)} organization(s), {logos_loaded} with logos")
 
           def resolve_org(field_val):
               """Linked record field returns a list of rec IDs; resolve to name."""
