@@ -835,137 +835,82 @@ def fetch_echo_events(base_url: str, client: anthropic.Anthropic, today: str, en
     return events
 
 
-# ── First Flight Venture Center ────────────────────────────────────────────────
+# ── First Flight Venture Center (Playwright + Claude) ─────────────────────────
 
 _FFVC_LOCATION = "First Flight Venture Center, 2 Davis Drive, Research Triangle Park, NC 27709"
 
-_IS_FULL_DATE = re.compile(
-    r"^(January|February|March|April|May|June|July|August|September|October|November|December)"
-    r" \d{1,2}, \d{4}$"
-)
-_IS_12H_TIME = re.compile(r"^\d{1,2}:\d{2} [AP]M")
-_IS_24H_TIME = re.compile(r"^\d{2}:\d{2} [–\-] \d{2}:\d{2}$")
-_IS_MONTH_ABBR = re.compile(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
-_IS_DAY_NUM = re.compile(r"^\d{1,2}$")
 
-
-def _is_date_or_time(s: str) -> bool:
-    return bool(
-        _IS_FULL_DATE.match(s) or _IS_12H_TIME.match(s) or _IS_24H_TIME.match(s)
-        or _IS_MONTH_ABBR.match(s) or _IS_DAY_NUM.match(s)
-    )
-
-
-def fetch_ffvc_events(calendar_url: str, today: str, end_date: str) -> list[dict]:
-    """Parse First Flight Venture Center events from their static events page."""
+def fetch_ffvc_events(calendar_url: str, client: anthropic.Anthropic, today: str, end_date: str) -> list[dict]:
+    """Render FFVC events page with Playwright, then extract events via Claude."""
+    print(f"  Launching Playwright for FFVC…")
     try:
-        resp = requests.get(calendar_url, headers=BROWSER_HEADERS, timeout=20)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"  SKIP (fetch failed): FFVC — {exc}")
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            pw_page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
+            pw_page.goto(calendar_url, timeout=60000, wait_until="load")
+            pw_page.wait_for_timeout(3000)
+            text = pw_page.inner_text("body")
+            links = pw_page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            browser.close()
+    except Exception as exc:
+        print(f"  SKIP (Playwright failed): FFVC — {exc}")
         return []
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
-        tag.decompose()
+    page_lines = [l for l in text.splitlines() if l.strip()]
+    page_text = "\n".join(page_lines)[:12000]
 
-    # Map event title → detail page URL by scanning <a> tags BEFORE text extraction.
-    # FFVC detail pages live under /new-events/ on the Squarespace site.
-    link_map: dict[str, str] = {}
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        if "/new-events/" not in href:
-            continue
-        text = a.get_text(strip=True)
-        if not text or len(text) < 5:
-            continue
-        full_url = urljoin(calendar_url, href)
-        # First occurrence wins (Squarespace renders image + title links per card).
-        link_map.setdefault(text.lower().strip(), full_url)
+    if links:
+        detail_links = [l for l in dict.fromkeys(links) if "/events/Details/" in l]
+        if detail_links:
+            page_text += "\n\nEVENT DETAIL LINKS (one per occurrence):\n" + "\n".join(detail_links[:100])
 
-    def find_event_url(title: str) -> str:
-        key = title.lower().strip()
-        if key in link_map:
-            return link_map[key]
-        matches = difflib.get_close_matches(key, link_map.keys(), n=1, cutoff=0.85)
-        if matches:
-            return link_map[matches[0]]
-        return calendar_url
+    if not page_text.strip() or len(page_text) < 100:
+        print(f"  SKIP: FFVC page returned no content")
+        return []
 
-    lines = [l.strip().replace(" ", " ") for l in soup.get_text(separator="\n").splitlines() if l.strip()]
+    print(f"  FFVC page: {len(page_text)} chars — sending to Claude…")
 
-    today_dt = datetime.strptime(today, "%Y-%m-%d")
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-    events: list[dict] = []
+    prompt = (
+        f"Extract all upcoming in-person events from this First Flight Venture Center events page. "
+        f"Today is {today}. Only include events between {today} and {end_date}. "
+        f"Return ONLY a valid JSON array starting with [ and ending with ]. "
+        f"Each object must have: name (string), date (YYYY-MM-DD), "
+        f"start_time (HH:MM in 24h, or 00:00 if unknown), "
+        f"end_time (HH:MM in 24h, or empty string if unknown), "
+        f"description (1-2 sentences about the event), "
+        f"source_url (from EVENT DETAIL LINKS — match each occurrence to its specific detail URL). "
+        f"Set host='First Flight Venture Center', city='RTP', "
+        f"location='{_FFVC_LOCATION}' on every event. "
+        f"Each recurring event occurrence on a different date is a separate object. "
+        f"Return [] if no in-range events found.\n\n"
+        f"Page content:\n{page_text}"
+    )
 
-    i = 0
-    while i < len(lines) - 1:
-        # Event block starts with month abbreviation + day number
-        if _IS_MONTH_ABBR.match(lines[i]) and i + 1 < len(lines) and _IS_DAY_NUM.match(lines[i + 1]):
-            event_date_str = None
-            event_time_str = None
-            title = None
-            description = None
-            k = i + 2
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            messages=[{{"role": "user", "content": prompt}}],
+        )
+    except Exception as exc:
+        print(f"  ERROR: Claude call failed for FFVC — {exc}")
+        return []
 
-            while k < len(lines):
-                line = lines[k]
-                # Stop when the next event block starts
-                if _IS_MONTH_ABBR.match(line) and k + 1 < len(lines) and _IS_DAY_NUM.match(lines[k + 1]):
-                    break
-                if _IS_FULL_DATE.match(line) and event_date_str is None:
-                    event_date_str = line
-                elif _IS_12H_TIME.match(line) and event_time_str is None:
-                    event_time_str = line
-                elif not _is_date_or_time(line):
-                    if title is None and len(line) > 5:
-                        title = line
-                    elif title is not None and len(line) > 50 and description is None:
-                        description = line
-                k += 1
+    raw = ""
+    for block in response.content:
+        if hasattr(block, "type") and block.type == "text":
+            raw += block.text
 
-            i = k
+    events = parse_events(raw)
+    for ev in events:
+        ev.setdefault("topic_tags", [])
+        ev.setdefault("host", "First Flight Venture Center")
+        ev.setdefault("city", "RTP")
+        ev.setdefault("location", _FFVC_LOCATION)
 
-            if not event_date_str or not title:
-                continue
-            if re.search(r"\bvirtual\b|\bonline only\b|\bwebinar\b", title, re.I):
-                print(f"    SKIP (virtual): {title}")
-                continue
-
-            try:
-                event_dt = datetime.strptime(event_date_str, "%B %d, %Y")
-            except ValueError:
-                continue
-            if event_dt < today_dt or event_dt > end_dt:
-                continue
-
-            start_time, end_time = "00:00", ""
-            if event_time_str:
-                tm = re.match(r"(\d{1,2}:\d{2} [AP]M) – (\d{1,2}:\d{2} [AP]M)", event_time_str)
-                if tm:
-                    try:
-                        start_time = datetime.strptime(tm.group(1), "%I:%M %p").strftime("%H:%M")
-                        end_time = datetime.strptime(tm.group(2), "%I:%M %p").strftime("%H:%M")
-                    except ValueError:
-                        pass
-
-            events.append({
-                "name": title,
-                "date": event_dt.strftime("%Y-%m-%d"),
-                "start_time": start_time,
-                "end_time": end_time,
-                "location": _FFVC_LOCATION,
-                "topic_tags": [],
-                "description": description or "",
-                "host": "First Flight Venture Center",
-                "city": "RTP",
-                "source_url": find_event_url(title),
-            })
-        else:
-            i += 1
-
-    print(f"  FFVC: {len(events)} in-range event(s)")
+    print(f"  FFVC: {{len(events)}} in-range event(s)")
     return events
+
 
 
 # ── Shared utilities ───────────────────────────────────────────────────────────
@@ -1600,7 +1545,7 @@ def main():
     all_events.extend(fetch_cednc_events("https://cednc.org/events/", today, end_date))
 
     print("\n[10/13] First Flight Venture Center…")
-    all_events.extend(fetch_ffvc_events("https://www.ffvcnc.org/ourevents", today, end_date))
+    all_events.extend(fetch_ffvc_events("https://launch.ffvcnc.org/events", client, today, end_date))
 
     print("\n[11/13] echo — Durham (Playwright + Claude)…")
     all_events.extend(fetch_echo_events("https://www.echo-nc.org/", client, today, end_date))
