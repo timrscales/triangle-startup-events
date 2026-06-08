@@ -3,9 +3,10 @@ import {
   TODAY, TODAY_START, MONTHS, DOW_SHORT, DOW_FULL, ALL_CITIES, ALL_TYPES, ALL_AUDIENCES,
   parseDate, sameDay, addDays, startOfWeek, isPast,
   fmtTime, fmtTimeRange, durationHours,
-  applyFilters, eventStyle, tagStyle,
+  applyFilters, eventStyle, tagStyle, cityStyle,
   iconBtn, ctaBtn,
   TopBar, XIcon, ExternalIcon, ChevronLeft, ChevronRight, PinIcon, hashIndex,
+  BookmarkIcon,
 } from './shell.jsx'
 import {
   FilterBar, MonthView, WeekView, ListView,
@@ -481,6 +482,42 @@ const OrgEventRow = ({ event, isSource, onClick }) => {
   )
 }
 
+// ── Saved-orgs localStorage helpers ────────────────────────────────────────
+function getSavedOrgs() {
+  try { return JSON.parse(localStorage.getItem('savedOrgs') || '[]') } catch { return [] }
+}
+function commitSavedOrgs(host, nextSaved) {
+  const current = getSavedOrgs()
+  const updated = nextSaved
+    ? [...new Set([...current, host])]
+    : current.filter(x => x !== host)
+  localStorage.setItem('savedOrgs', JSON.stringify(updated))
+  return nextSaved
+}
+
+// ── Adaptive org logo image (sizes by natural aspect ratio) ────────────────
+const OrgLogoImage = ({ src, alt }) => {
+  const [ratio, setRatio] = useState(null)
+  const isSquare = ratio !== null && ratio < 1.5
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onLoad={e => setRatio(e.target.naturalWidth / e.target.naturalHeight)}
+      onError={e => { e.target.style.display = 'none' }}
+      style={{
+        display: 'block',
+        height: isSquare ? 60 : 48,
+        width: 'auto',
+        maxWidth: 180,
+        objectFit: 'contain',
+        opacity: ratio === null ? 0 : 1,
+        transition: 'opacity 100ms',
+      }}
+    />
+  )
+}
+
 const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, device }) => {
   const isMobile = device === "mobile"
   const profile = ORG_PROFILES[host] || {}
@@ -489,25 +526,127 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
     .filter(e => getHosts(e).includes(host) && parseDate(e.date) >= today)
     .sort((a, b) => a.date.localeCompare(b.date))
 
+  const [saved, setSaved] = useState(() => getSavedOrgs().includes(host))
+
+  // Derive city from first upcoming event (fallback: none)
+  const orgCity = orgEvents[0]?.city || null
+  const cityColor = orgCity ? cityStyle(orgCity) : null
+
+  // Preview: next 2 upcoming events
+  const previewEvents = orgEvents.slice(0, 2)
+
+  const fmtPreviewDate = (event) => {
+    const d = parseDate(event.date)
+    const time = event.start_time ? ` · ${fmtTime(event.start_time)}` : ''
+    return `${DOW_SHORT[d.getDay()]} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}${time}`
+  }
+
   const content = (
     <div style={{ display: "flex", flexDirection: "column", background: "var(--paper)", height: "100%", overflow: "hidden" }}>
-      <div style={{ padding: isMobile ? "20px 16px" : "28px 28px 24px", borderBottom: "1px solid var(--line)", position: "relative" }}>
+
+      {/* ── Header ── */}
+      <div style={{ borderBottom: "1px solid var(--line)", flexShrink: 0, position: "relative" }}>
+
+        {/* Close button — always top-right of header */}
         <button onClick={onClose} aria-label="Close" style={{
-          position: "absolute", top: 14, right: 14,
-          width: 32, height: 32, background: "rgba(255,255,255,0.85)", border: 0, cursor: "pointer",
+          position: "absolute", top: 14, right: 14, zIndex: 2,
+          width: 32, height: 32, background: "rgba(255,255,255,0.9)", border: 0, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink)",
         }}><XIcon /></button>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 16, paddingRight: 36 }}>
-          <OrgLogo host={host} size={isMobile ? 48 : 64} logoSrc={profile.logo} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>Organizer</div>
-            <h2 style={{ fontSize: isMobile ? 20 : 26, fontWeight: 900, color: "var(--ink)", letterSpacing: "-0.015em", lineHeight: 1.1, margin: 0 }}>{host}</h2>
+
+        {/* 1. Logo shelf — only shown when a logo is available */}
+        {profile.logo && (
+          <div style={{
+            background: "var(--paper-2)",
+            padding: "18px 60px 14px 24px", // right padding leaves room for close button
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <OrgLogoImage src={profile.logo} alt={host} />
+            <button
+              onClick={() => { const next = !saved; setSaved(next); commitSavedOrgs(host, next) }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                padding: "6px 10px", fontSize: 11, fontWeight: 800,
+                fontFamily: "inherit", cursor: "pointer", flexShrink: 0,
+                background: saved ? "var(--ink)" : "#fff",
+                color: saved ? "#fff" : "var(--ink-2)",
+                border: "1px solid var(--line)",
+              }}>
+              <BookmarkIcon filled={saved} />
+              {saved ? "Saved" : "Save org"}
+            </button>
           </div>
+        )}
+
+        {/* 2. Name + city row */}
+        <div style={{ padding: "14px 24px 10px", paddingRight: profile.logo ? 24 : 54 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em", color: "var(--ink)", margin: 0, lineHeight: 1.2 }}>{host}</h2>
+          {orgCity && cityColor && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: cityColor.dot, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{orgCity}</span>
+            </div>
+          )}
         </div>
+
+        {/* 3. Upcoming events preview — omitted if 0 upcoming events */}
+        {previewEvents.length > 0 && (
+          <div style={{ margin: "0 24px 16px", border: "1px solid var(--line)" }}>
+            <div style={{ padding: "8px 12px 4px", fontSize: 10, fontWeight: 800, letterSpacing: "0.13em", textTransform: "uppercase", color: "var(--muted)" }}>
+              Upcoming
+            </div>
+            {previewEvents.map((e, i) => {
+              const es = eventStyle(e)
+              return (
+                <div
+                  key={e.id}
+                  onClick={() => onSelectEvent(e)}
+                  style={{
+                    display: "flex", alignItems: "stretch", cursor: "pointer",
+                    borderTop: "1px solid var(--line)",
+                    transition: "background 100ms",
+                  }}
+                  onMouseEnter={ev => ev.currentTarget.style.background = "var(--paper-2)"}
+                  onMouseLeave={ev => ev.currentTarget.style.background = ""}
+                >
+                  <div style={{ width: 3, background: es.dot, flexShrink: 0 }} />
+                  <div style={{ padding: "8px 10px", flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {e.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                      {fmtPreviewDate(e)}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            {/* All N events row */}
+            <div
+              onClick={() => {
+                // TODO: filter by org
+                onClose()
+              }}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "7px 12px", borderTop: "1px solid var(--line)",
+                cursor: "pointer", transition: "background 100ms",
+              }}
+              onMouseEnter={ev => ev.currentTarget.style.background = "var(--paper-2)"}
+              onMouseLeave={ev => ev.currentTarget.style.background = ""}
+            >
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--rdsw-blue-dark)" }}>
+                All {orgEvents.length} events
+              </span>
+              <ChevronRight />
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* ── Body ── */}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        <div style={{ padding: isMobile ? "20px 16px" : "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ padding: isMobile ? "20px 16px" : "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
           {profile.description && (
             <p style={{ margin: 0, fontSize: 14, color: "var(--ink-2)", lineHeight: 1.6 }}>{profile.description}</p>
           )}
@@ -526,20 +665,6 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                 <span style={{ color: "var(--muted)", flexShrink: 0, paddingTop: 1 }}><PinIcon /></span>
                 <span style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.4 }}>{profile.address}</span>
-              </div>
-            )}
-          </div>
-          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 12 }}>
-              Upcoming events
-            </div>
-            {orgEvents.length === 0 ? (
-              <div style={{ fontSize: 13, color: "var(--muted)" }}>No upcoming events from this organizer.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {orgEvents.map(e => (
-                  <OrgEventRow key={e.id} event={e} isSource={e.id === sourceEventId} onClick={() => onSelectEvent(e)} />
-                ))}
               </div>
             )}
           </div>
