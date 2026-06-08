@@ -890,7 +890,7 @@ def fetch_ffvc_events(calendar_url: str, client: anthropic.Anthropic, today: str
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=4096,
-            messages=[{{"role": "user", "content": prompt}}],
+            messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:
         print(f"  ERROR: Claude call failed for FFVC — {exc}")
@@ -908,7 +908,7 @@ def fetch_ffvc_events(calendar_url: str, client: anthropic.Anthropic, today: str
         ev.setdefault("city", "RTP")
         ev.setdefault("location", _FFVC_LOCATION)
 
-    print(f"  FFVC: {{len(events)}} in-range event(s)")
+    print(f"  FFVC: {len(events)} in-range event(s)")
     return events
 
 
