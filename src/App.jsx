@@ -516,15 +516,6 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
   const orgCity = orgEvents[0]?.city || null
   const cityColor = orgCity ? cityStyle(orgCity) : null
 
-  // Preview: next 2 upcoming events
-  const previewEvents = orgEvents.slice(0, 2)
-
-  const fmtPreviewDate = (event) => {
-    const d = parseDate(event.date)
-    const time = event.start_time ? ` · ${fmtTime(event.start_time)}` : ''
-    return `${DOW_SHORT[d.getDay()]} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}${time}`
-  }
-
   const content = (
     <div style={{ display: "flex", flexDirection: "column", background: "var(--paper)", height: "100%", overflow: "hidden" }}>
 
@@ -560,64 +551,11 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
           )}
         </div>
 
-        {/* 3. Upcoming events preview — omitted if 0 upcoming events */}
-        {previewEvents.length > 0 && (
-          <div style={{ margin: "0 24px 16px", border: "1px solid var(--line)" }}>
-            <div style={{ padding: "8px 12px 4px", fontSize: 10, fontWeight: 800, letterSpacing: "0.13em", textTransform: "uppercase", color: "var(--muted)" }}>
-              Upcoming
-            </div>
-            {previewEvents.map((e, i) => {
-              const es = eventStyle(e)
-              return (
-                <div
-                  key={e.id}
-                  onClick={() => onSelectEvent(e)}
-                  style={{
-                    display: "flex", alignItems: "stretch", cursor: "pointer",
-                    borderTop: "1px solid var(--line)",
-                    transition: "background 100ms",
-                  }}
-                  onMouseEnter={ev => ev.currentTarget.style.background = "var(--paper-2)"}
-                  onMouseLeave={ev => ev.currentTarget.style.background = ""}
-                >
-                  <div style={{ width: 3, background: es.dot, flexShrink: 0 }} />
-                  <div style={{ padding: "8px 10px", flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {e.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                      {fmtPreviewDate(e)}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-            {/* All N events row */}
-            <div
-              onClick={() => {
-                // TODO: filter by org
-                onClose()
-              }}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "7px 12px", borderTop: "1px solid var(--line)",
-                cursor: "pointer", transition: "background 100ms",
-              }}
-              onMouseEnter={ev => ev.currentTarget.style.background = "var(--paper-2)"}
-              onMouseLeave={ev => ev.currentTarget.style.background = ""}
-            >
-              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--rdsw-blue-dark)" }}>
-                All {orgEvents.length} events
-              </span>
-              <ChevronRight />
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ── Body ── */}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        <div style={{ padding: isMobile ? "20px 16px" : "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ padding: isMobile ? "20px 16px" : "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
           {profile.description && (
             <p style={{ margin: 0, fontSize: 14, color: "var(--ink-2)", lineHeight: 1.6 }}>{profile.description}</p>
           )}
@@ -636,6 +574,20 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                 <span style={{ color: "var(--muted)", flexShrink: 0, paddingTop: 1 }}><PinIcon /></span>
                 <span style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.4 }}>{profile.address}</span>
+              </div>
+            )}
+          </div>
+          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 12 }}>
+              Upcoming events
+            </div>
+            {orgEvents.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--muted)" }}>No upcoming events from this organizer.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {orgEvents.map(e => (
+                  <OrgEventRow key={e.id} event={e} isSource={e.id === sourceEventId} onClick={() => onSelectEvent(e)} />
+                ))}
               </div>
             )}
           </div>
