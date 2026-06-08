@@ -242,6 +242,8 @@ def _parse_lila_detail(url: str, today_dt: datetime, end_dt: datetime) -> dict |
         lines = [l for l in text.splitlines() if l.strip()]
         description = " ".join(lines[4:8])[:350]
 
+    tags: list[str] = []
+
     return {
         "name": name,
         "date": date_fmt,
