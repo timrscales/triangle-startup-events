@@ -6,7 +6,6 @@ import {
   applyFilters, eventStyle, tagStyle, cityStyle,
   iconBtn, ctaBtn,
   TopBar, XIcon, ExternalIcon, ChevronLeft, ChevronRight, PinIcon, hashIndex,
-  BookmarkIcon,
 } from './shell.jsx'
 import {
   FilterBar, MonthView, WeekView, ListView,
@@ -482,19 +481,6 @@ const OrgEventRow = ({ event, isSource, onClick }) => {
   )
 }
 
-// ── Saved-orgs localStorage helpers ────────────────────────────────────────
-function getSavedOrgs() {
-  try { return JSON.parse(localStorage.getItem('savedOrgs') || '[]') } catch { return [] }
-}
-function commitSavedOrgs(host, nextSaved) {
-  const current = getSavedOrgs()
-  const updated = nextSaved
-    ? [...new Set([...current, host])]
-    : current.filter(x => x !== host)
-  localStorage.setItem('savedOrgs', JSON.stringify(updated))
-  return nextSaved
-}
-
 // ── Adaptive org logo image (sizes by natural aspect ratio) ────────────────
 const OrgLogoImage = ({ src, alt }) => {
   const [ratio, setRatio] = useState(null)
@@ -525,8 +511,6 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
   const orgEvents = allEvents
     .filter(e => getHosts(e).includes(host) && parseDate(e.date) >= today)
     .sort((a, b) => a.date.localeCompare(b.date))
-
-  const [saved, setSaved] = useState(() => getSavedOrgs().includes(host))
 
   // Derive city from first upcoming event (fallback: none)
   const orgCity = orgEvents[0]?.city || null
@@ -559,22 +543,9 @@ const OrgPanel = ({ host, allEvents, sourceEventId, onClose, onSelectEvent, devi
           <div style={{
             background: "var(--paper-2)",
             padding: "18px 60px 14px 24px", // right padding leaves room for close button
-            display: "flex", alignItems: "center", justifyContent: "space-between",
+            display: "flex", alignItems: "center",
           }}>
             <OrgLogoImage src={profile.logo} alt={host} />
-            <button
-              onClick={() => { const next = !saved; setSaved(next); commitSavedOrgs(host, next) }}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                padding: "6px 10px", fontSize: 11, fontWeight: 800,
-                fontFamily: "inherit", cursor: "pointer", flexShrink: 0,
-                background: saved ? "var(--ink)" : "#fff",
-                color: saved ? "#fff" : "var(--ink-2)",
-                border: "1px solid var(--line)",
-              }}>
-              <BookmarkIcon filled={saved} />
-              {saved ? "Saved" : "Save org"}
-            </button>
           </div>
         )}
 
