@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import {
-  TODAY, MONTHS, DOW_SHORT, DOW_FULL, ALL_CITIES, ALL_TYPES, ALL_AUDIENCES,
+  TODAY, TODAY_START, MONTHS, DOW_SHORT, DOW_FULL, ALL_CITIES, ALL_TYPES, ALL_AUDIENCES,
   parseDate, sameDay, addDays, startOfWeek, isPast,
   fmtTime, fmtTimeRange, durationHours,
   applyFilters, eventStyle, tagStyle,
@@ -693,7 +693,7 @@ const PeriodNav = ({ view, cursor, setCursor, device, resultCount }) => {
       return `${MONTHS[start.getMonth()].slice(0, 3)} ${start.getDate()} – ${MONTHS[end.getMonth()].slice(0, 3)} ${end.getDate()}`
     })() :
     view === "Month" ? `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}` :
-    "Upcoming events"
+    ""
   const move = (n) => {
     if (view === "Month") {
       const next = new Date(cursor); next.setMonth(next.getMonth() + n); setCursor(next)
@@ -862,10 +862,11 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
   }, [isMobile])
 
   const filteredAll = useMemo(() => applyFilters(EVENTS, filters, search), [filters, search])
+  const filteredFuture = useMemo(() => filteredAll.filter((e) => parseDate(e.date) >= TODAY_START), [filteredAll])
   const filteredForView = useMemo(() => {
     if (view !== "List") return filteredAll
-    return filteredAll.filter((e) => parseDate(e.date) >= new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate()))
-  }, [filteredAll, view])
+    return filteredFuture
+  }, [filteredAll, filteredFuture, view])
 
   const dayPopoverEvents = useMemo(() => {
     if (!dayPopover) return []
@@ -885,7 +886,12 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
       <TopBar
         device={device}
         view={view} setView={setView}
-        onSubmit={() => window.open(SUBMIT_URL, "_blank", "noopener,noreferrer")}
+        onSubmit={() => {
+          const w = 560, h = 700
+          const left = Math.round(window.screenX + (window.outerWidth - w) / 2)
+          const top  = Math.round(window.screenY + (window.outerHeight - h) / 2)
+          window.open(SUBMIT_URL, "submit_event", `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`)
+        }}
         onRecommend={() => setRecommendOpen(true)}
         searchOpen={searchOpen} setSearchOpen={setSearchOpen}
         filterOpen={filterOpen} setFilterOpen={setFilterOpen}
@@ -893,7 +899,7 @@ export default function TriangleEventsApp({ device = "desktop", cardVariant = "s
         events={EVENTS}
         filters={filters} setFilters={setFilters}
         search={search} setSearch={setSearch}
-        resultCount={filteredAll.length} />
+        resultCount={filteredFuture.length} />
 
       <FilterBar
         device={device}
