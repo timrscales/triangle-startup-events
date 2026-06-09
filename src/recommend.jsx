@@ -42,6 +42,30 @@ const STAGE_AIRTABLE = {
   "Scaling":        "Scaling",
 }
 
+// ── Stage definitions ────────────────────────────────────────────────────────
+const STAGE_DEFS = {
+  "Idea stage": {
+    color: "#FFB648", soft: "#FFF4DE",
+    tags: "Exploring · Pre-product · Just starting",
+    desc: "You're thinking about starting something — maybe you've spotted a problem, maybe you just know you want to build. Either way, you haven't built anything yet. The work right now is figuring out if there's something real here.",
+  },
+  "Building": {
+    color: "#009DE0", soft: "#E8F6FD",
+    tags: "Building MVP · Pre-launch · Prototyping",
+    desc: "You're turning an idea into something real — building an MVP, prototype, or proof of concept. The goal is getting something in front of actual users as fast as possible.",
+  },
+  "Early traction": {
+    color: "#1BE0B0", soft: "#E8FBF6",
+    tags: "First customers · Early signals · Testing what works",
+    desc: "You've launched and real people are using it. You're seeing early signals — some revenue, users, or repeat engagement — but you haven't figured out what's actually working yet.",
+  },
+  "Scaling": {
+    color: "#B577FC", soft: "#F3ECFE",
+    tags: "Growing fast · Hiring & expanding · Scaling revenue",
+    desc: 'You have a product people clearly want and you\'re focused on growth — more customers, more revenue, more team. The question has shifted from "does this work?" to "how do we do more of it?"',
+  },
+}
+
 // ── Date helpers ─────────────────────────────────────────────────────────────
 function parseEventDate(dateStr) {
   if (!dateStr) return null
@@ -244,6 +268,38 @@ function Chip({ label, selected, onClick, prefix }) {
   )
 }
 
+// ── Definition panel ─────────────────────────────────────────────────────────
+function DefinitionPanel({ def }) {
+  if (!def) return null
+  return (
+    <div style={{
+      marginTop: 10,
+      padding: "12px 14px",
+      background: def.soft,
+      border: `1px solid ${def.color}22`,
+      borderLeft: `3px solid ${def.color}`,
+      animation: "tseDefReveal 200ms ease-out",
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
+        textTransform: "uppercase", marginBottom: 5,
+        color: def.color, filter: "brightness(0.75)",
+      }}>
+        What this means
+      </div>
+      <div style={{
+        fontSize: 13, fontWeight: 500, lineHeight: 1.55,
+        color: "var(--ink-2)", marginBottom: 9,
+      }}>
+        {def.desc}
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>
+        {def.tags}
+      </div>
+    </div>
+  )
+}
+
 // ── Email capture ────────────────────────────────────────────────────────────
 // ── Event result card ────────────────────────────────────────────────────────
 function EventCard({ result }) {
@@ -428,6 +484,7 @@ export function RecommendModal({ open, onClose, events }) {
                       onClick={() => setStage(prev => prev === s ? null : s)} />
                   ))}
                 </div>
+                <DefinitionPanel def={stage ? STAGE_DEFS[stage] : null} />
               </div>
               <QDivider />
 
