@@ -108,10 +108,15 @@ export function applyFilters(events, f, search) {
 // ──────────────────────── SF-3 Search & Filter Popover ────────────────────────
 const SearchFilterPopover = ({ events, filters, setFilters, search, setSearch, resultCount, onClose }) => {
   const inputRef = useRef(null)
-  const tags = useMemo(() => topTags(events, 8), [events])
+  const allTags = useMemo(() => topTags(events, 20), [events])
   const cities = useMemo(() => [...new Set(events.map(e => e.city).filter(Boolean))].sort(), [events])
   const activeTags = filters.topics.map(t => t.toLowerCase())
   const activeCities = filters.cities
+  const [showAllTags, setShowAllTags] = useState(false)
+
+  const VISIBLE_TAGS = 5
+  const visibleTags = showAllTags ? allTags : allTags.slice(0, VISIBLE_TAGS)
+  const hiddenCount = allTags.length - VISIBLE_TAGS
 
   const toggle = (tag) => setFilters(f => ({
     ...f,
@@ -125,7 +130,8 @@ const SearchFilterPopover = ({ events, filters, setFilters, search, setSearch, r
   }))
   const clearAll = () => { setSearch(''); setFilters({ cities: [], types: [], audiences: [], topics: [], free: 'all' }) }
 
-  const hasAny = search || activeTags.length > 0 || activeCities.length > 0
+  const activeFilterCount = activeTags.length + activeCities.length
+  const hasAny = search || activeFilterCount > 0
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.focus()
@@ -172,21 +178,20 @@ const SearchFilterPopover = ({ events, filters, setFilters, search, setSearch, r
           )}
         </div>
 
-        {/* Topics */}
+        {/* Topics — neutral chips, top 5 with expand toggle */}
         <div style={{ padding: '12px 14px 10px' }}>
           <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 7 }}>Topics</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-            {tags.map(({ tag }) => {
+            {visibleTags.map(({ tag }) => {
               const active = activeTags.includes(tag.toLowerCase())
-              const c = tagStyle(tag)
               return (
                 <button key={tag} onClick={() => toggle(tag)} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  display: 'inline-flex', alignItems: 'center',
                   padding: '5px 9px', fontSize: 11, fontWeight: 700,
                   fontFamily: 'var(--font-mono)', cursor: 'pointer',
-                  background: active ? c.fg : c.bg,
-                  color: active ? '#fff' : c.fg,
-                  border: `1.5px solid ${active ? c.fg : 'transparent'}`,
+                  background: active ? 'var(--ink)' : 'var(--paper-2)',
+                  color: active ? '#fff' : 'var(--ink-3)',
+                  border: `1px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
                   whiteSpace: 'nowrap', transition: 'all 100ms',
                 }}>
                   #{tag.replace(/\s+/g, '')}
@@ -194,6 +199,15 @@ const SearchFilterPopover = ({ events, filters, setFilters, search, setSearch, r
               )
             })}
           </div>
+          {!showAllTags && hiddenCount > 0 && (
+            <button onClick={() => setShowAllTags(true)} style={{
+              marginTop: 8, background: 'none', border: 'none', padding: 0,
+              fontSize: 11, fontWeight: 700, color: 'var(--rdsw-blue)',
+              textDecoration: 'underline', cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              + {hiddenCount} more topic{hiddenCount !== 1 ? 's' : ''}
+            </button>
+          )}
         </div>
 
         {/* City */}
@@ -208,12 +222,12 @@ const SearchFilterPopover = ({ events, filters, setFilters, search, setSearch, r
                   display: 'inline-flex', alignItems: 'center', gap: 5,
                   padding: '5px 10px', fontSize: 12, fontWeight: 700,
                   fontFamily: 'inherit', cursor: 'pointer',
-                  background: active ? cs.dot : cs.soft,
-                  color: active ? '#fff' : cs.deep,
-                  border: `1.5px solid ${active ? cs.dot : 'transparent'}`,
+                  background: active ? 'var(--ink)' : 'var(--paper-2)',
+                  color: active ? '#fff' : 'var(--ink-2)',
+                  border: `1px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
                   whiteSpace: 'nowrap', transition: 'all 100ms',
                 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? 'rgba(255,255,255,0.8)' : cs.dot, flexShrink: 0 }} />
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? 'rgba(255,255,255,0.45)' : cs.dot, flexShrink: 0 }} />
                   {city}
                 </button>
               )
@@ -221,13 +235,16 @@ const SearchFilterPopover = ({ events, filters, setFilters, search, setSearch, r
           </div>
         </div>
 
-        {/* Commit row — shown when any filter/search is active */}
+        {/* Footer — active filter count + clear, view results */}
         {hasAny && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line-2)' }}>
             <button onClick={clearAll} style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--muted)', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', padding: 0,
-            }}>Clear all</button>
+              color: 'var(--muted)', fontSize: 11, fontWeight: 700,
+              fontFamily: 'inherit', padding: 0, textDecoration: 'underline',
+            }}>
+              {activeFilterCount > 0 ? `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active` : 'Clear'} ×
+            </button>
             <button onClick={onClose} style={{
               background: 'var(--ink)', color: '#fff', border: 'none', cursor: 'pointer',
               fontSize: 12, fontWeight: 800, fontFamily: 'inherit', padding: '7px 14px',
