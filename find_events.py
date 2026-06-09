@@ -915,6 +915,116 @@ def fetch_ffvc_events(calendar_url: str, client: anthropic.Anthropic, today: str
 
 # ── The Loading Dock ──────────────────────────────────────────────────────────
 
+def _loading_dock_recurrence_dates(text: str, anchor_dt: datetime,
+                                    today_dt: datetime, end_dt: datetime) -> list[datetime]:
+    """
+    Given page text and one known anchor date, detect a recurrence rule and
+    return all in-range occurrence dates.  Returns [] if no rule is detected.
+
+    Supported patterns (case-insensitive):
+      "every week" / "weekly"
+      "every month" / "monthly" / "each month"
+      "Nth Weekday of every month"  e.g. "2nd Friday of every month"
+      "every other week"
+    """
+    ORDINALS = {"1st": 1, "first": 1, "2nd": 2, "second": 2,
+                "3rd": 3, "third": 3, "4th": 4, "fourth": 4, "last": -1}
+    WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+                "friday": 4, "saturday": 5, "sunday": 6}
+
+    # "Nth Weekday of every month"
+    m = re.search(
+        r"\b(1st|2nd|3rd|4th|first|second|third|fourth|last)\s+"
+        r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+        r"\s+of\s+every\s+month",
+        text, re.I,
+    )
+    if m:
+        nth = ORDINALS[m.group(1).lower()]
+        wd  = WEEKDAYS[m.group(2).lower()]
+        dates = []
+        # Walk month by month from anchor's month through end_dt
+        year, month = anchor_dt.year, anchor_dt.month
+        while True:
+            occ = _nth_weekday_of_month(year, month, wd, nth)
+            if occ and today_dt <= occ <= end_dt:
+                dates.append(occ)
+            # advance month
+            if month == 12:
+                year += 1; month = 1
+            else:
+                month += 1
+            if datetime(year, month, 1) > end_dt:
+                break
+        return dates
+
+    # plain "every month" / "monthly"
+    if re.search(r"\bevery\s+month\b|\bmonthly\b|\beach\s+month\b", text, re.I):
+        day_of_month = anchor_dt.day
+        dates = []
+        year, month = anchor_dt.year, anchor_dt.month
+        while True:
+            try:
+                occ = anchor_dt.replace(year=year, month=month, day=day_of_month)
+            except ValueError:
+                pass
+            else:
+                if today_dt <= occ <= end_dt:
+                    dates.append(occ)
+            if month == 12:
+                year += 1; month = 1
+            else:
+                month += 1
+            if datetime(year, month, 1) > end_dt:
+                break
+        return dates
+
+    # "every other week"
+    if re.search(r"\bevery\s+other\s+week\b|\bbiweekly\b|\bbi-weekly\b", text, re.I):
+        dates = []
+        occ = anchor_dt
+        while occ <= end_dt:
+            if occ >= today_dt:
+                dates.append(occ)
+            occ += timedelta(weeks=2)
+        return dates
+
+    # "every week" / "weekly"
+    if re.search(r"\bevery\s+week\b|\bweekly\b", text, re.I):
+        dates = []
+        occ = anchor_dt
+        while occ <= end_dt:
+            if occ >= today_dt:
+                dates.append(occ)
+            occ += timedelta(weeks=1)
+        return dates
+
+    return []
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday: int, nth: int) -> "datetime | None":
+    """Return the nth occurrence (1-based) of weekday in the given month, or None if invalid."""
+    import calendar as _cal
+    if nth == -1:
+        # last occurrence
+        last_day = _cal.monthrange(year, month)[1]
+        d = datetime(year, month, last_day)
+        while d.weekday() != weekday:
+            d -= timedelta(days=1)
+        return d
+    count = 0
+    for day in range(1, 32):
+        try:
+            d = datetime(year, month, day)
+        except ValueError:
+            break
+        if d.weekday() == weekday:
+            count += 1
+            if count == nth:
+                return d
+    return None
+
+
 def _parse_loading_dock_detail(url: str, today_dt: datetime, end_dt: datetime) -> list[dict]:
     """Fetch a Loading Dock detail page and return one dict per in-range date."""
     try:
@@ -951,10 +1061,36 @@ def _parse_loading_dock_detail(url: str, today_dt: datetime, end_dt: datetime) -
     if not date_matches:
         return []
 
-    # Find all time ranges: "11:30 AM – 12:30 PM" or "11:30 AM - 12:30 PM"
-    time_matches = list(re.finditer(
+    # Parse all explicit dates found on the page
+    explicit_dates: list[datetime] = []
+    for dm in date_matches:
+        try:
+            explicit_dates.append(
+                datetime.strptime(f"{dm.group(1)} {dm.group(2)} {dm.group(3)}", "%B %d %Y")
+            )
+        except ValueError:
+            pass
+
+    # Find time: try "H:MM AM – H:MM PM" range first, then two consecutive standalone times
+    time_match = re.search(
         r"(\d{1,2}:\d{2}\s*[AP]M)\s*[–\-]+\s*(\d{1,2}:\d{2}\s*[AP]M)", text, re.I
-    ))
+    )
+    start_time, end_time = "00:00", ""
+    if time_match:
+        try:
+            start_time = datetime.strptime(time_match.group(1).strip(), "%I:%M %p").strftime("%H:%M")
+            end_time   = datetime.strptime(time_match.group(2).strip(), "%I:%M %p").strftime("%H:%M")
+        except ValueError:
+            pass
+    else:
+        # Fallback: two standalone times on consecutive lines
+        standalone = re.findall(r"\b(\d{1,2}:\d{2}\s*[AP]M)\b", text, re.I)
+        if len(standalone) >= 2:
+            try:
+                start_time = datetime.strptime(standalone[0].strip(), "%I:%M %p").strftime("%H:%M")
+                end_time   = datetime.strptime(standalone[1].strip(), "%I:%M %p").strftime("%H:%M")
+            except ValueError:
+                pass
 
     # Location: prefer full address with street number
     addr_match = re.search(
@@ -970,25 +1106,16 @@ def _parse_loading_dock_detail(url: str, today_dt: datetime, end_dt: datetime) -
             desc = line[:400]
             break
 
+    # Determine which dates to use: explicit in-range ones, or recurrence expansion
+    in_range = [d for d in explicit_dates if today_dt <= d <= end_dt]
+    if not in_range:
+        # Try to expand a recurrence rule anchored on the earliest explicit date
+        anchor = min(explicit_dates) if explicit_dates else None
+        if anchor:
+            in_range = _loading_dock_recurrence_dates(text, anchor, today_dt, end_dt)
+
     events = []
-    for i, dm in enumerate(date_matches):
-        try:
-            ev_dt = datetime.strptime(f"{dm.group(1)} {dm.group(2)} {dm.group(3)}", "%B %d %Y")
-        except ValueError:
-            continue
-        if ev_dt < today_dt or ev_dt > end_dt:
-            continue
-
-        # Use time match at same index if available, else first one
-        tm = time_matches[i] if i < len(time_matches) else (time_matches[0] if time_matches else None)
-        start_time, end_time = "00:00", ""
-        if tm:
-            try:
-                start_time = datetime.strptime(tm.group(1).strip(), "%I:%M %p").strftime("%H:%M")
-                end_time = datetime.strptime(tm.group(2).strip(), "%I:%M %p").strftime("%H:%M")
-            except ValueError:
-                pass
-
+    for ev_dt in in_range:
         events.append({
             "name": name,
             "date": ev_dt.strftime("%Y-%m-%d"),
