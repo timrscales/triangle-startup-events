@@ -16,7 +16,10 @@
       "Bash(dig +short events.timscales.com)",
       "Bash(curl -sI https://events.timscales.com)",
       "WebFetch(domain:www.echo-nc.org)",
-      "Bash(python -c \"import find_events; print\\('OK'\\)\")"
+      "Bash(python -c \"import find_events; print\\('OK'\\)\")",
+      "Bash(git reset *)",
+      "Bash(rm \".git/refs/remotes/origin/main.lock\")",
+      "Bash(git fetch *)"
     ]
   }
 }
