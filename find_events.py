@@ -913,6 +913,132 @@ def fetch_ffvc_events(calendar_url: str, client: anthropic.Anthropic, today: str
 
 
 
+# ── The Loading Dock ──────────────────────────────────────────────────────────
+
+def _parse_loading_dock_detail(url: str, today_dt: datetime, end_dt: datetime) -> list[dict]:
+    """Fetch a Loading Dock detail page and return one dict per in-range date."""
+    try:
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"    SKIP (fetch failed): {url} — {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Title from <h1> or page <title>
+    h1 = soup.find("h1")
+    name = h1.get_text(strip=True) if h1 else ""
+    if not name:
+        t = soup.find("title")
+        name = t.get_text(strip=True).split("|")[0].strip() if t else ""
+
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+
+    # Skip virtual events
+    if re.search(r"\bvirtual\b|\bonline\b|\bwebinar\b", text[:600], re.I):
+        return []
+
+    # Find all "Weekday, Month D, YYYY" dates on the page (recurring events list multiple)
+    date_matches = list(re.finditer(
+        r"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+"
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s+(\d{1,2}),\s+(\d{4})",
+        text,
+    ))
+    if not date_matches:
+        return []
+
+    # Find all time ranges: "11:30 AM – 12:30 PM" or "11:30 AM - 12:30 PM"
+    time_matches = list(re.finditer(
+        r"(\d{1,2}:\d{2}\s*[AP]M)\s*[–\-]+\s*(\d{1,2}:\d{2}\s*[AP]M)", text, re.I
+    ))
+
+    # Location: prefer full address with street number
+    addr_match = re.search(
+        r"\d+\s+\w[^\n]{5,80},\s+\w[^\n]{2,40}(?:NC|North Carolina)[^\n]{0,30}\d{5}", text
+    )
+    location = addr_match.group(0).strip() if addr_match else "The Loading Dock, Raleigh, NC"
+
+    # Description: first substantial paragraph
+    desc = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if len(line) > 60 and name.lower()[:20] not in line.lower():
+            desc = line[:400]
+            break
+
+    events = []
+    for i, dm in enumerate(date_matches):
+        try:
+            ev_dt = datetime.strptime(f"{dm.group(1)} {dm.group(2)} {dm.group(3)}", "%B %d %Y")
+        except ValueError:
+            continue
+        if ev_dt < today_dt or ev_dt > end_dt:
+            continue
+
+        # Use time match at same index if available, else first one
+        tm = time_matches[i] if i < len(time_matches) else (time_matches[0] if time_matches else None)
+        start_time, end_time = "00:00", ""
+        if tm:
+            try:
+                start_time = datetime.strptime(tm.group(1).strip(), "%I:%M %p").strftime("%H:%M")
+                end_time = datetime.strptime(tm.group(2).strip(), "%I:%M %p").strftime("%H:%M")
+            except ValueError:
+                pass
+
+        events.append({
+            "name": name,
+            "date": ev_dt.strftime("%Y-%m-%d"),
+            "start_time": start_time,
+            "end_time": end_time,
+            "location": location,
+            "description": desc,
+            "host": "The Loading Dock",
+            "city": _city_from_location(location) or "Raleigh",
+            "topic_tags": [],
+            "source_url": url,
+        })
+
+    return events
+
+
+def fetch_loading_dock_events(list_url: str, today: str, end_date: str) -> list[dict]:
+    """Scrape The Loading Dock event list, then fetch each detail page."""
+    try:
+        resp = requests.get(list_url, headers=BROWSER_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"  SKIP (fetch failed): Loading Dock — {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    seen: set[str] = set()
+    detail_urls: list[str] = []
+    for a in soup.find_all("a", href=re.compile(r"/new-events/\d{4}/")):
+        href = a["href"].strip()
+        full = href if href.startswith("http") else f"https://www.theloadingdock.com{href}"
+        if full not in seen:
+            seen.add(full)
+            detail_urls.append(full)
+
+    print(f"  Loading Dock: {len(detail_urls)} event link(s) found")
+
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    events: list[dict] = []
+    for url in detail_urls:
+        evs = _parse_loading_dock_detail(url, today_dt, end_dt)
+        events.extend(evs)
+        time.sleep(0.3)
+
+    print(f"  Loading Dock: {len(events)} in-range event(s)")
+    return events
+
+
 # ── Shared utilities ───────────────────────────────────────────────────────────
 
 def parse_events(text: str) -> list[dict]:
@@ -1521,13 +1647,13 @@ def main():
     print(f"Triangle Startup Events — {today} → {end_date}\n")
     all_events: list[dict] = []
 
-    print("[1/14] Lila Learning…")
+    print("[1/15] Lila Learning…")
     all_events.extend(fetch_lila_events(today, end_date))
 
-    print("\n[2/14] Luma — Raleigh-Durham Startup Week…")
+    print("\n[2/15] Luma — Raleigh-Durham Startup Week…")
     all_events.extend(fetch_luma_events("https://lu.ma/raleighdurhamstartupweek", today, end_date))
 
-    print("\n[3/14] Luma — Triangle Startup Calendar…")
+    print("\n[3/15] Luma — Triangle Startup Calendar…")
     all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-e7mpB5yqt2phl0T", today, end_date))
 
     meetup_sources = [
@@ -1538,25 +1664,28 @@ def main():
         ("triangle-techbreakfast",      "https://www.meetup.com/triangle-techbreakfast/"),
     ]
     for idx, (label, url) in enumerate(meetup_sources, start=4):
-        print(f"\n[{idx}/14] Meetup — {label}…")
+        print(f"\n[{idx}/15] Meetup — {label}…")
         all_events.extend(fetch_meetup_events(url, today, end_date))
 
-    print("\n[9/14] CEDNC…")
+    print("\n[9/15] CEDNC…")
     all_events.extend(fetch_cednc_events("https://cednc.org/events/", today, end_date))
 
-    print("\n[10/14] First Flight Venture Center…")
+    print("\n[10/15] First Flight Venture Center…")
     all_events.extend(fetch_ffvc_events("https://launch.ffvcnc.org/events", client, today, end_date))
 
-    print("\n[11/14] echo — Durham (Playwright + Claude)…")
+    print("\n[11/15] echo — Durham (Playwright + Claude)…")
     all_events.extend(fetch_echo_events("https://www.echo-nc.org/", client, today, end_date))
 
-    print("\n[12/14] Bullhouse…")
+    print("\n[12/15] Bullhouse…")
     all_events.extend(fetch_luma_events("https://luma.com/bullhouse", today, end_date))
 
-    print("\n[13/14] Luma — ADVAgo…")
+    print("\n[13/15] Luma — ADVAgo…")
     all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-jNLpChoAwyqDeSV", today, end_date))
 
-    print("\n[14/14] 1 Million Cups — Durham (Playwright + Claude)…")
+    print("\n[14/15] The Loading Dock…")
+    all_events.extend(fetch_loading_dock_events("https://www.theloadingdock.com/new-events", today, end_date))
+
+    print("\n[15/15] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
         "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
         client, today, end_date,
