@@ -587,9 +587,11 @@ def fetch_1mc_events(
             raw += block.text
 
     events = parse_events(raw)
-    # Clear tags from the extraction prompt — _enrich_one will set them cleanly
+    _1MC_DESC = "1 Million Cups is a free, weekly gathering for local entrepreneurs where a founder presents their business followed by a 20-minute Q&A over coffee."
     for ev in events:
         ev["topic_tags"] = []
+        ev["description"] = _1MC_DESC
+        ev["_fixed_description"] = True
     print(f"  1MC: {len(events)} event(s) extracted by Claude")
     return events
 
@@ -1615,7 +1617,7 @@ def _enrich_one(event: dict, client: anthropic.Anthropic) -> dict:
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
         data = json.loads(raw)
-        if isinstance(data.get("description"), str) and data["description"].strip():
+        if isinstance(data.get("description"), str) and data["description"].strip() and not event.get("_fixed_description"):
             event["description"] = data["description"].strip()
         if isinstance(data.get("topic_tags"), list) and data["topic_tags"]:
             seeded = [t for t in (event.get("topic_tags") or []) if t in APPROVED_TAGS]
