@@ -2,7 +2,7 @@ name: Weekly Email and LinkedIn Draft
 
 on:
   schedule:
-    - cron: '0 15 * * 1'  # 11:00 AM ET on Mondays (UTC-4 in EDT), after daily.yml
+    - cron: '30 11 * * 1'  # 7:30 AM ET on Mondays (UTC-4 in EDT), after daily.yml
   workflow_dispatch:       # Allow manual runs from the Actions tab
 
 permissions:
