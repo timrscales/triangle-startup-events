@@ -2,7 +2,7 @@ name: Daily Startup Events Finder
 
 on:
   schedule:
-    - cron: '0 14 * * *'  # 10:00 AM ET (UTC-4 in EDT)
+    - cron: '0 11 * * 1'  # 7:00 AM ET Mondays (UTC-4 in EDT)
   workflow_dispatch:       # Allow manual runs from the Actions tab
 
 permissions:
