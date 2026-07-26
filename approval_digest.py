@@ -30,6 +30,8 @@ GMAIL_CREDENTIALS = os.environ.get("GMAIL_CREDENTIALS_FILE", "gmail_credentials.
 GMAIL_TOKEN       = os.environ.get("GMAIL_TOKEN_FILE", "gmail_token.json")
 SENDER_EMAIL      = "tim@timscales.com"
 
+AIRTABLE_PROGRAMS_TABLE = "tblyikQu0nqYi43YN"
+
 # Deep link to a specific Airtable record
 AIRTABLE_RECORD_URL = "https://airtable.com/{base}/{record}"
 
@@ -113,9 +115,52 @@ def _fetch_org_names(org_ids: set[str]) -> dict[str, str]:
     return names
 
 
+def fetch_pending_programs() -> list[dict]:
+    """Fetch programs where Status=Unverified OR Pending Changes is non-empty."""
+    url     = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_PROGRAMS_TABLE}"
+    formula = "OR({Status}='Unverified', AND({Pending Changes}!='', {Pending Changes}!=''))"
+    params  = {
+        "filterByFormula": formula,
+        "fields[]": [
+            "Program Name", "Program Type", "Application Open/Deadline",
+            "Program URL", "What You Offer", "Pending Changes", "Status",
+        ],
+        "sort[0][field]":     "Program Name",
+        "sort[0][direction]": "asc",
+    }
+    records = []
+    offset  = None
+    while True:
+        if offset:
+            params["offset"] = offset
+        resp = requests.get(url, headers=AT_HEADERS(), params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        records.extend(data.get("records", []))
+        offset = data.get("offset")
+        if not offset:
+            break
+
+    programs = []
+    for r in records:
+        f = r.get("fields", {})
+        programs.append({
+            "record_id":      r["id"],
+            "name":           f.get("Program Name", ""),
+            "program_type":   f.get("Program Type", ""),
+            "deadline":       f.get("Application Open/Deadline", ""),
+            "program_url":    f.get("Program URL", ""),
+            "what_you_offer": f.get("What You Offer", []),
+            "pending_changes":f.get("Pending Changes", ""),
+            "status":         f.get("Status", ""),
+        })
+    return programs
+
+
 # ── Formatting ────────────────────────────────────────────────────────────────
 
-AIRTABLE_EDIT_URL = "https://airtable.com/apprt7MFT8PcVhFY4/pagn5NtFKrCDtz2Eb"
+AIRTABLE_EDIT_URL          = "https://airtable.com/apprt7MFT8PcVhFY4/pagn5NtFKrCDtz2Eb"
+AIRTABLE_PROGRAMS_EDIT_URL = f"https://airtable.com/apprt7MFT8PcVhFY4/{AIRTABLE_PROGRAMS_TABLE}"
 
 def _fmt_time(t: str) -> str:
     from datetime import datetime
@@ -207,7 +252,49 @@ def _event_preview(ev: dict) -> str:
 
 # ── Email ─────────────────────────────────────────────────────────────────────
 
-def build_html(events: list[dict]) -> str:
+def _program_row(prog: dict) -> str:
+    """Render a single program row for the digest email."""
+    record_id     = prog["record_id"]
+    edit_url      = f"{AIRTABLE_PROGRAMS_EDIT_URL}?recordId={record_id}"
+    name          = prog["name"]
+    program_type  = prog["program_type"]
+    deadline      = prog["deadline"]
+    program_url   = prog["program_url"]
+    what_you_offer = prog["what_you_offer"] if isinstance(prog["what_you_offer"], list) else []
+    pending       = prog["pending_changes"]
+    status        = prog["status"]
+
+    title_line = f"<strong>{name}</strong>"
+    if program_type:
+        title_line += f" | {program_type}"
+    if status == "Unverified":
+        title_line += " <em>(Unverified)</em>"
+
+    lines = [f'<p style="margin:0 0 4px 0">👉 {title_line}</p>']
+    if deadline:
+        lines.append(f'<p style="margin:0 0 4px 0">📅 Deadline: {deadline}</p>')
+    if what_you_offer:
+        tags = " &nbsp;·&nbsp; ".join(what_you_offer)
+        lines.append(f'<p style="margin:0 0 4px 0">🏷️ {tags}</p>')
+    if program_url:
+        lines.append(f'<p style="margin:0 0 4px 0">🔗 <a href="{program_url}" style="color:#0e6b6b">{program_url}</a></p>')
+    if pending:
+        lines.append(
+            f'<div style="margin:8px 0 0 0;padding:6px 10px;background:#fff8f0;'
+            f'border-left:3px solid #e67e22;font-size:12px;color:#c0392b;white-space:pre-wrap">'
+            f'{pending}</div>'
+        )
+
+    return f"""
+<div style="border:1px solid #ddd;padding:16px;margin-bottom:16px;font-family:Arial,sans-serif;font-size:14px;line-height:1.6">
+  {"".join(lines)}
+  <div style="margin-top:12px">
+    <a href="{edit_url}" style="display:inline-block;background:#0e6b6b;color:white;padding:5px 14px;text-decoration:none;font-size:12px;font-weight:bold">Review</a>
+  </div>
+</div>"""
+
+
+def build_html(events: list[dict], programs: list[dict]) -> str:
     rows = []
     for ev in events:
         record_id = ev["record_id"]
@@ -234,8 +321,19 @@ def build_html(events: list[dict]) -> str:
   </div>
 </div>""")
 
-    count   = len(events)
-    heading = f"{count} event{'s' if count > 1 else ''} pending approval"
+    event_count   = len(events)
+    event_heading = f"{event_count} event{'s' if event_count > 1 else ''} pending approval"
+
+    programs_section = ""
+    if programs:
+        prog_count    = len(programs)
+        prog_heading  = f"{prog_count} program{'s' if prog_count > 1 else ''} needing review"
+        prog_rows     = "".join(_program_row(p) for p in programs)
+        programs_section = f"""
+    <h2 style="font-size:18px;font-weight:bold;color:#6b3a0e;margin:32px 0 16px 0">
+      Programs &amp; Grants — {prog_heading}
+    </h2>
+    {prog_rows}"""
 
     return f"""<!DOCTYPE html>
 <html>
@@ -243,9 +341,10 @@ def build_html(events: list[dict]) -> str:
 <body style="margin:0;padding:24px;background:#f5f5f5;font-family:Arial,sans-serif">
   <div style="max-width:620px;margin:0 auto">
     <h2 style="font-size:18px;font-weight:bold;color:#0e6b6b;margin:0 0 16px 0">
-      Triangle Startup Events — {heading}
+      Triangle Startup Events — {event_heading}
     </h2>
     {"".join(rows)}
+    {programs_section}
   </div>
 </body>
 </html>"""
@@ -284,10 +383,16 @@ def get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def send_digest(service, events: list[dict]) -> None:
-    count   = len(events)
-    subject = f"🗓️ {count} event{'s' if count > 1 else ''} pending approval — Triangle Startup Events"
-    html    = build_html(events)
+def send_digest(service, events: list[dict], programs: list[dict]) -> None:
+    event_count = len(events)
+    prog_count  = len(programs)
+    parts = []
+    if event_count:
+        parts.append(f"{event_count} event{'s' if event_count > 1 else ''} pending approval")
+    if prog_count:
+        parts.append(f"{prog_count} program{'s' if prog_count > 1 else ''} to review")
+    subject = "🗓️ " + " + ".join(parts) + " — Triangle Startup Events"
+    html    = build_html(events, programs)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -310,7 +415,11 @@ def main() -> None:
     events = fetch_pending_events()
     print(f"  {len(events)} pending")
 
-    if not events:
+    print("Fetching programs needing review from Airtable...")
+    programs = fetch_pending_programs()
+    print(f"  {len(programs)} program(s) needing review")
+
+    if not events and not programs:
         print("Nothing to review. No email sent.")
         return
 
@@ -318,8 +427,8 @@ def main() -> None:
     service = get_gmail_service()
 
     print("Sending digest...")
-    send_digest(service, events)
-    print(f"Done. Digest sent for {len(events)} event(s).")
+    send_digest(service, events, programs)
+    print(f"Done. Digest sent for {len(events)} event(s) and {len(programs)} program(s).")
 
 
 if __name__ == "__main__":
