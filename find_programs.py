@@ -624,7 +624,10 @@ _DEADLINE_KW_RE = re.compile(
     r"submit\s+by|last\s+day\s+to\s+apply|open\s+until|accepting\s+applications",
     re.IGNORECASE,
 )
-_APPLY_LINK_RE = re.compile(r"apply|application|deadline|register", re.IGNORECASE)
+_APPLY_LINK_RE = re.compile(
+    r"apply|application|deadline|register|grant-cycle|cohort|cycle|fellowship",
+    re.IGNORECASE,
+)
 
 
 def _search_deadline(program_name: str, client: anthropic.Anthropic) -> str:
@@ -851,13 +854,16 @@ def fetch_source_page(label: str, url: str, client: anthropic.Anthropic) -> list
             deduped.append(p)
     all_programs = deduped
 
-    # For programs still missing a deadline, try following apply links
-    apply_links = _find_apply_links(links, url)
+    # For programs still missing a deadline, scan apply/cycle links from the full page
+    apply_links = _find_apply_links(links + prog_links, url)
     if apply_links:
         for p in all_programs:
             if p.get("next_deadline") or p.get("deadline_type") == "Rolling":
                 continue
             for al in apply_links:
+                if al in seen_detail_urls:
+                    continue
+                seen_detail_urls.add(al)
                 al_text = _requests_fetch(al, f"{label} apply-link")
                 if not al_text:
                     continue
