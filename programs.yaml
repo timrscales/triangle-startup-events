@@ -376,6 +376,20 @@
     Annual statewide awards recognizing North Carolina's top technology
     companies and startups.
 
+- name: gBETA Charlotte
+  org: gener8tor
+  url: https://www.gener8tor.com/gbeta/charlotte
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: In-person
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Mentorship, Investor access, Network/community]
+  description: >-
+    gener8tor's free, equity-free seven-week accelerator in Charlotte, working
+    with five companies per cohort on traction and investor readiness.
+
 # ── National / remote ────────────────────────────────────────────────────────
 
 - name: Y Combinator
