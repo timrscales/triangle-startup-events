@@ -183,13 +183,13 @@ def try_create_schema_fields() -> None:
         "Authorization": f"Bearer {AIRTABLE_API_KEY}",
         "Content-Type":  "application/json",
     }
-    print("Attempting to create schema fields via Airtable Meta API…")
+    print("Attempting to create schema fields via Airtable Meta API…", flush=True)
     failed_403 = False
     for spec in SCHEMA_FIELD_SPECS:
         try:
             resp = requests.post(
                 AIRTABLE_META_FIELDS_URL, headers=headers,
-                json=spec, timeout=15,
+                json=spec, timeout=5,
             )
             if resp.status_code == 403:
                 failed_403 = True
@@ -643,8 +643,11 @@ def _playwright_fetch(url: str, label: str) -> tuple[str, list[str]]:
             browser = p.chromium.launch(headless=True)
             page    = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
             page.goto(url, timeout=30000)
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(3000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass  # proceed with whatever loaded
+            page.wait_for_timeout(1500)
             text  = page.inner_text("body")
             links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
             browser.close()
@@ -1210,16 +1213,15 @@ def main() -> None:
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    # Attempt schema field creation
-    try_create_schema_fields()
+    # Schema fields are managed manually in Airtable; skip auto-creation
 
-    print("Fetching organizations from Airtable…")
+    print("Fetching organizations from Airtable…", flush=True)
     orgs = load_orgs()
-    print(f"  {len(orgs)} organization(s) loaded.")
+    print(f"  {len(orgs)} organization(s) loaded.", flush=True)
 
-    print("Fetching existing programs from Airtable…")
+    print("Fetching existing programs from Airtable…", flush=True)
     existing = get_existing_programs()
-    print(f"  {len(existing.records)} program record(s) indexed.")
+    print(f"  {len(existing.records)} program record(s) indexed.", flush=True)
 
     counters: dict = {
         "created":     0,
