@@ -14,6 +14,7 @@ Required env vars:
 """
 from __future__ import annotations
 
+import argparse
 import base64
 import os
 import re
@@ -430,31 +431,39 @@ def send_alert(service, dead_links: list[dict], dead_programs: list[dict]) -> No
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--events-only",   action="store_true")
+    group.add_argument("--programs-only", action="store_true")
+    args = parser.parse_args()
+
     if not AIRTABLE_API_KEY:
         print("ERROR: AIRTABLE_API_KEY not set")
         sys.exit(1)
 
-    print("Fetching upcoming events from Airtable...")
-    events = fetch_upcoming_events()
-    print(f"  {len(events)} events to check")
+    dead_links    = []
+    dead_programs = []
 
-    dead_links = []
-    for i, event in enumerate(events, 1):
-        url  = event["source_url"]
-        name = event["name"]
-        print(f"  [{i}/{len(events)}] {name[:50]}...")
-        is_dead, reason = check_url(url)
-        if is_dead:
-            print(f"    DEAD: {reason}")
-            dead_links.append({**event, "reason": reason})
-        else:
-            print(f"    OK")
+    if not args.programs_only:
+        print("Fetching upcoming events from Airtable...")
+        events = fetch_upcoming_events()
+        print(f"  {len(events)} events to check")
+        for i, event in enumerate(events, 1):
+            url  = event["source_url"]
+            name = event["name"]
+            print(f"  [{i}/{len(events)}] {name[:50]}...")
+            is_dead, reason = check_url(url)
+            if is_dead:
+                print(f"    DEAD: {reason}")
+                dead_links.append({**event, "reason": reason})
+            else:
+                print(f"    OK")
+        print(f"\n{len(dead_links)} dead event link(s) found.")
 
-    print(f"\n{len(dead_links)} dead event link(s) found.")
-
-    print("\nChecking Grants & Programs URLs...")
-    dead_programs = check_programs()
-    print(f"{len(dead_programs)} dead program link(s) found.")
+    if not args.events_only:
+        print("\nChecking Grants & Programs URLs...")
+        dead_programs = check_programs()
+        print(f"{len(dead_programs)} dead program link(s) found.")
 
     if not dead_links and not dead_programs:
         print("No email sent.")

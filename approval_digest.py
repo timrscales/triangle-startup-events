@@ -13,6 +13,7 @@ Required env vars:
 """
 from __future__ import annotations
 
+import argparse
 import base64
 import os
 import sys
@@ -407,17 +408,28 @@ def send_digest(service, events: list[dict], programs: list[dict]) -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--events-only",   action="store_true")
+    group.add_argument("--programs-only", action="store_true")
+    args = parser.parse_args()
+
     if not AIRTABLE_API_KEY:
         print("ERROR: AIRTABLE_API_KEY not set")
         sys.exit(1)
 
-    print("Fetching pending events from Airtable...")
-    events = fetch_pending_events()
-    print(f"  {len(events)} pending")
+    events   = []
+    programs = []
 
-    print("Fetching programs needing review from Airtable...")
-    programs = fetch_pending_programs()
-    print(f"  {len(programs)} program(s) needing review")
+    if not args.programs_only:
+        print("Fetching pending events from Airtable...")
+        events = fetch_pending_events()
+        print(f"  {len(events)} pending")
+
+    if not args.events_only:
+        print("Fetching programs needing review from Airtable...")
+        programs = fetch_pending_programs()
+        print(f"  {len(programs)} program(s) needing review")
 
     if not events and not programs:
         print("Nothing to review. No email sent.")

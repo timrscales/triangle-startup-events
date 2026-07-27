@@ -46,11 +46,11 @@ jobs:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           GMAIL_CREDENTIALS_FILE: gmail_credentials.json
           GMAIL_TOKEN_FILE: gmail_token.json
-        run: python check_links.py
+        run: python check_links.py --programs-only
 
       - name: Send approval digest for programs
         env:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           GMAIL_CREDENTIALS_FILE: gmail_credentials.json
           GMAIL_TOKEN_FILE: gmail_token.json
-        run: python approval_digest.py
+        run: python approval_digest.py --programs-only
