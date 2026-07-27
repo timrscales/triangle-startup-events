@@ -239,9 +239,9 @@ def check_url_with_retry(url: str) -> tuple[bool, str, bool]:
 # ── Programs link checking ─────────────────────────────────────────────────────
 
 def fetch_programs_to_check() -> list[dict]:
-    """Fetch Active and Unverified programs from the Grants & Programs table."""
+    """Fetch Approved and Pending Review programs from the Grants & Programs table."""
     url     = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_PROGRAMS_TABLE}"
-    formula = "OR({Status}='Active', {Status}='Unverified')"
+    formula = "OR({Status}='Approved', {Status}='Pending Review', {Status}='Active', {Status}='Unverified')"
     params  = {
         "filterByFormula": formula,
         "fields[]": ["Program Name", "Program URL", "Status",
@@ -316,8 +316,7 @@ def check_programs() -> list[dict]:
 
         if is_dead:
             print(f"    DEAD: {reason}")
-            update_fields["Status"] = "Dead Link"
-            pending = _append_pending_change(pending, f"Dead link: {reason}")
+            pending = _append_pending_change(pending, f"DEAD LINK: {reason} — verify and update")
             dead_programs.append({**prog, "reason": reason})
         elif is_js_shell:
             print(f"    JS shell — noting retry next week")

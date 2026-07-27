@@ -116,13 +116,13 @@ def _fetch_org_names(org_ids: set[str]) -> dict[str, str]:
 
 
 def fetch_pending_programs() -> list[dict]:
-    """Fetch programs where Status=Unverified OR Pending Changes is non-empty."""
+    """Fetch programs where Status=Pending Review (or legacy Unverified) OR Pending Changes is non-empty."""
     url     = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_PROGRAMS_TABLE}"
-    formula = "OR({Status}='Unverified', AND({Pending Changes}!='', {Pending Changes}!=''))"
+    formula = "OR({Status}='Pending Review', {Status}='Unverified', AND({Pending Changes}!='', {Pending Changes}!=''))"
     params  = {
         "filterByFormula": formula,
         "fields[]": [
-            "Program Name", "Program Type", "Application Open/Deadline",
+            "Program Name", "Program Type", "Application Deadline",
             "Program URL", "What You Offer", "Pending Changes", "Status",
         ],
         "sort[0][field]":     "Program Name",
@@ -148,7 +148,7 @@ def fetch_pending_programs() -> list[dict]:
             "record_id":      r["id"],
             "name":           f.get("Program Name", ""),
             "program_type":   f.get("Program Type", ""),
-            "deadline":       f.get("Application Open/Deadline", ""),
+            "deadline":       f.get("Application Deadline", ""),
             "program_url":    f.get("Program URL", ""),
             "what_you_offer": f.get("What You Offer", []),
             "pending_changes":f.get("Pending Changes", ""),
@@ -267,8 +267,8 @@ def _program_row(prog: dict) -> str:
     title_line = f"<strong>{name}</strong>"
     if program_type:
         title_line += f" | {program_type}"
-    if status == "Unverified":
-        title_line += " <em>(Unverified)</em>"
+    if status in ("Pending Review", "Unverified"):
+        title_line += " <em>(Pending Review)</em>"
 
     lines = [f'<p style="margin:0 0 4px 0">👉 {title_line}</p>']
     if deadline:
