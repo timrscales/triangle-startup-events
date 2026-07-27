@@ -1,18 +1,18 @@
-name: Daily Startup Events Finder
+name: Weekly Programs Finder
 
 on:
   schedule:
-    - cron: '0 11 * * *'  # 7:00 AM ET daily (UTC-4 in EDT)
+    - cron: '0 11 * * 0'  # 7:00 AM ET Sundays (UTC-4 in EDT)
   workflow_dispatch:       # Allow manual runs from the Actions tab
 
 permissions:
   contents: read
-  actions: write           # Required to trigger deploy.yml
+  actions: write
 
 jobs:
-  find-events:
+  find-programs:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -30,31 +30,25 @@ jobs:
       - name: Install Playwright Chromium
         run: playwright install chromium
 
-      - name: Find and sync events
+      - name: Find and sync programs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        run: python find_events.py
-
-      - name: Trigger calendar deploy
-        if: success()
-        run: gh workflow run deploy.yml --ref main
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python find_programs.py
 
       - name: Write Gmail credentials
         run: |
           echo '${{ secrets.GMAIL_CREDENTIALS_JSON }}' > gmail_credentials.json
           echo '${{ secrets.GMAIL_TOKEN_JSON }}' > gmail_token.json
 
-      - name: Check for dead links
+      - name: Check program links
         env:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           GMAIL_CREDENTIALS_FILE: gmail_credentials.json
           GMAIL_TOKEN_FILE: gmail_token.json
         run: python check_links.py
 
-      - name: Send approval digest
+      - name: Send approval digest for programs
         env:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           GMAIL_CREDENTIALS_FILE: gmail_credentials.json
