@@ -450,7 +450,7 @@ def create_program_record(
     # Location/Remote (single select)
     loc_remote = str(program.get("location_remote", "") or "").strip()
     if loc_remote in ALLOWED_LOCATION_REMOTE:
-        fields["Location/Remote"] = loc_remote
+        fields["Location / Remote"] = loc_remote
 
     # Discovery Source
     ds = discovery_source or str(program.get("discovery_source", "") or "").strip()
