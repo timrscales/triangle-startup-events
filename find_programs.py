@@ -339,6 +339,12 @@ def _program_display_name(name: str, cycle_name: str) -> str:
     return f"{name} — {cycle}" if cycle else name
 
 
+_DATETIME_NAME_RE = re.compile(
+    r"^\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}",
+    re.IGNORECASE,
+)
+
+
 def is_valid_program(program: dict) -> tuple[bool, str]:
     """Return (True, '') or (False, reason)."""
     if not isinstance(program, dict):
@@ -347,6 +353,8 @@ def is_valid_program(program: dict) -> tuple[bool, str]:
     url  = str(program.get("source_url", "") or "").strip()
     if not name:
         return False, "empty name"
+    if _DATETIME_NAME_RE.match(name):
+        return False, "name looks like a datetime string"
     if not url:
         return False, "empty source_url"
     deadline_type = program.get("deadline_type", "")
