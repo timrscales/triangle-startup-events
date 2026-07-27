@@ -376,6 +376,20 @@
     Annual statewide awards recognizing North Carolina's top technology
     companies and startups.
 
+- name: GRO Incubator
+  org: CED
+  url: https://www.cednc.co/GRO
+  type: Incubator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Curriculum, Mentorship, Funding, Network/community]
+  description: >-
+    CED's 12-week intensive incubator (formerly FastTrac) for early-stage tech
+    and biotech startups, ending in a Demo Day with a $20,000 first-place prize.
+
 - name: gBETA Charlotte
   org: gener8tor
   url: https://www.gener8tor.com/gbeta/charlotte
