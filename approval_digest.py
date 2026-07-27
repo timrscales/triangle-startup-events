@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import os
 import sys
 from datetime import date, timedelta
@@ -295,7 +296,20 @@ def _program_row(prog: dict) -> str:
 </div>"""
 
 
-def build_html(events: list[dict], programs: list[dict]) -> str:
+def load_discovery_leads() -> list[dict]:
+    """Read discovery_leads.json written by find_programs.py, if present."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "discovery_leads.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            leads = json.load(f)
+        return leads if isinstance(leads, list) else []
+    except Exception:
+        return []
+
+
+def build_html(events: list[dict], programs: list[dict], leads: list[dict] | None = None) -> str:
     rows = []
     for ev in events:
         record_id = ev["record_id"]
@@ -336,6 +350,30 @@ def build_html(events: list[dict], programs: list[dict]) -> str:
     </h2>
     {prog_rows}"""
 
+    leads_section = ""
+    if leads:
+        lead_items = []
+        for lead in leads:
+            name   = str(lead.get("name", "")).strip()
+            url    = str(lead.get("url", "")).strip()
+            source = str(lead.get("source", "")).strip()
+            label  = f'<a href="{url}">{name}</a>' if url else name
+            lead_items.append(
+                f'<li style="margin-bottom:6px">{label}'
+                f' <span style="color:#888;font-size:12px">(seen in {source})</span></li>'
+            )
+        leads_section = f"""
+    <h2 style="font-size:18px;font-weight:bold;color:#3a5a0e;margin:32px 0 8px 0">
+      Possible new programs — {len(leads)} lead{'s' if len(leads) > 1 else ''}
+    </h2>
+    <p style="font-size:13px;color:#666;margin:0 0 12px 0">
+      Spotted by the discovery sweep but not in programs.yaml. To track one,
+      add it to the registry.
+    </p>
+    <ul style="font-family:Arial,sans-serif;font-size:14px;padding-left:20px">
+      {"".join(lead_items)}
+    </ul>"""
+
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -346,6 +384,7 @@ def build_html(events: list[dict], programs: list[dict]) -> str:
     </h2>
     {"".join(rows)}
     {programs_section}
+    {leads_section}
   </div>
 </body>
 </html>"""
@@ -384,16 +423,20 @@ def get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def send_digest(service, events: list[dict], programs: list[dict]) -> None:
+def send_digest(service, events: list[dict], programs: list[dict],
+                leads: list[dict] | None = None) -> None:
     event_count = len(events)
     prog_count  = len(programs)
+    leads       = leads or []
     parts = []
     if event_count:
         parts.append(f"{event_count} event{'s' if event_count > 1 else ''} pending approval")
     if prog_count:
         parts.append(f"{prog_count} program{'s' if prog_count > 1 else ''} to review")
+    if leads:
+        parts.append(f"{len(leads)} new lead{'s' if len(leads) > 1 else ''}")
     subject = "🗓️ " + " + ".join(parts) + " — Triangle Startup Events"
-    html    = build_html(events, programs)
+    html    = build_html(events, programs, leads)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -426,12 +469,16 @@ def main() -> None:
         events = fetch_pending_events()
         print(f"  {len(events)} pending")
 
+    leads = []
     if not args.events_only:
         print("Fetching programs needing review from Airtable...")
         programs = fetch_pending_programs()
         print(f"  {len(programs)} program(s) needing review")
+        leads = load_discovery_leads()
+        if leads:
+            print(f"  {len(leads)} discovery lead(s) from find_programs.py")
 
-    if not events and not programs:
+    if not events and not programs and not leads:
         print("Nothing to review. No email sent.")
         return
 
@@ -439,8 +486,9 @@ def main() -> None:
     service = get_gmail_service()
 
     print("Sending digest...")
-    send_digest(service, events, programs)
-    print(f"Done. Digest sent for {len(events)} event(s) and {len(programs)} program(s).")
+    send_digest(service, events, programs, leads)
+    print(f"Done. Digest sent for {len(events)} event(s), {len(programs)} program(s), "
+          f"{len(leads)} lead(s).")
 
 
 if __name__ == "__main__":

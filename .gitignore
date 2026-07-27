@@ -1,3 +1,4 @@
 node_modules/
 dist/
 gmail_token.json
+discovery_leads.json

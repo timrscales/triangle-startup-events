@@ -1,615 +1,103 @@
 #!/usr/bin/env python3
 """
-Find Triangle-area startup accelerators, grants, and programs and sync to Airtable.
+Grants & Programs sync for Triangle Startup Events.
 
-Three-pass discovery:
-  Pass 1 — Refresh known records (re-check deadlines for existing programs)
-  Pass 2 — Curated source sweep (SOURCES list)
-  Pass 3 — Discovery sweep (DISCOVERY_SOURCES)
+Architecture (v2 — registry-driven):
 
-Run with --dry-run to print what would be created/patched without writing.
+  programs.yaml is the source of truth for WHICH programs exist. This script
+  never invents program records from scraped pages.
+
+  Per registry program, weekly:
+    1. Ensure one Airtable record exists (created as Pending Review).
+    2. rolling programs  → verify the link is alive, stamp Last Verified.
+    3. cyclical programs → hunt the current application deadline with a
+       bounded crawl (max pages + max seconds), using a regex pre-filter so
+       Claude is only called on pages that actually mention dates near
+       deadline language. Found future deadline → patch Next Deadline /
+       Cycle Name / Deadline Type=Fixed. Passed deadline → clear it back to
+       Annual - TBD and note the change. Nothing found → leave it alone
+       (unknown stays unknown; we never write "Rolling" as a guess).
+
+  Discovery (GrepBeat / NCEEM / WRAL) produces LEADS ONLY, written to
+  discovery_leads.json for the approval digest email. Discovery never
+  writes to Airtable.
+
+Usage:
+  python find_programs.py            # live run
+  python find_programs.py --dry-run  # print writes instead of performing them
+
+Required env vars:
+  AIRTABLE_API_KEY
+  ANTHROPIC_API_KEY
 """
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import re
 import sys
 import time
-from datetime import date
+from datetime import date, datetime, timedelta
 from urllib.parse import urljoin, urlparse
 
 import anthropic
 import requests
+import yaml
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
-
-from find_events import (
-    BROWSER_HEADERS,
-    _strip_emojis,
-    create_org_stub,
-    load_orgs,
-    resolve_org,
-)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 AIRTABLE_API_KEY  = os.environ.get("AIRTABLE_API_KEY")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 AIRTABLE_BASE_ID  = "apprt7MFT8PcVhFY4"
-AIRTABLE_TABLE_ID = "tblyikQu0nqYi43YN"
-AIRTABLE_PROGRAMS_URL     = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_ID}"
-AIRTABLE_META_FIELDS_URL  = (
-    f"https://api.airtable.com/v0/meta/bases/{AIRTABLE_BASE_ID}"
-    f"/tables/{AIRTABLE_TABLE_ID}/fields"
-)
 
-TODAY = date.today().isoformat()
+AIRTABLE_PROGRAMS_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/tblyikQu0nqYi43YN"
+AIRTABLE_ORGS_URL     = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Organizations"
 
-# ── Allowed values ────────────────────────────────────────────────────────────
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
-ALLOWED_PROGRAM_TYPE = [
-    "Accelerator", "Incubator", "Bootcamp", "Competition", "Grant",
-    "Fellowship", "Recognition", "Corporate Program"
-]
-ALLOWED_STAGE_SERVED   = ["Idea Stage", "Building", "Early Traction", "Scaling"]
-ALLOWED_WHAT_YOU_OFFER = [
-    "Funding", "Investor access", "Mentorship", "Curriculum",
-    "Network/community", "Customer/pilot access", "Workspace/facilities"
-]
-ALLOWED_GEO_SCOPE       = ["Triangle-Local", "NC-Regional", "National", "Global"]
-ALLOWED_COST            = ["Free", "Equity Only", "Cash Fee", "Equity + Cash Fee"]
-ALLOWED_LOCATION_REMOTE = ["In-person", "Remote", "Hybrid"]
-ALLOWED_AUDIENCE        = [
-    "Women Founders", "Black Founders", "Latino Founders", "LGBTQ+ Founders",
-    "Student Founders", "Veteran Founders", "All Founders"
-]
-ALLOWED_DEADLINE_TYPE   = ["Fixed", "Rolling", "Annual - TBD"]
-ALLOWED_STATUS          = ["Pending Review", "Approved", "Rejected", "Archived"]
+REGISTRY_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "programs.yaml")
+LEADS_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "discovery_leads.json")
 
-# ── Curated sources ───────────────────────────────────────────────────────────
+TODAY      = date.today().isoformat()
+TODAY_DATE = date.today()
 
-# Triangle-local
-SOURCES_TRIANGLE = [
-    ("NC IDEA",                  "https://ncidea.org/programs/"),
-    ("CED",                      "https://cednc.org/programs/"),
-    ("American Underground",     "https://americanunderground.com/idea-to-entrepreneur/"),
-    ("First Flight VC",          "https://ffvcnc.org/programs/"),
-    ("RIoT",                     "https://riot.org/startup-accelerator/"),
-    ("Launch Chapel Hill",       "https://launchchapelhill.com/"),
-    ("Innovate Carolina",        "https://innovate.unc.edu/"),
-    ("Duke I&E",                 "https://entrepreneurship.duke.edu/"),
-    ("NC State Entrepreneurship","https://entrepreneurship.ncsu.edu/"),
-    ("Provident1898",            "https://provident1898.com/"),
-    ("Grep-a-Palooza",           "https://www.grepapalooza.com/"),
-    ("The Launch Place",         "https://www.thelaunchplace.org/"),
-    ("AdvanSE PitchRounds",      "https://www.advanse.org/"),
-]
+# Deadline-hunt budgets
+HUNT_MAX_PAGES   = 6
+HUNT_MAX_SECONDS = 35
 
-# NC-statewide
-SOURCES_NC = [
-    ("One NC Small Business Program",
-     "https://www.commerce.nc.gov/grants-incentives/technology-funds/one-north-carolina-small-business-program"),
-    ("NCBiotech",                "https://www.ncbiotech.org/funding/company-funding"),
-    ("NSF I-Corps NC State",     "https://kenan.ncsu.edu/initiative/nc-state-nsf-i-corps-hub-program"),
-    ("Joules Accelerator",       "https://www.joulesaccelerator.com/"),
-    ("NC TECH Awards",           "https://www.nctech.org/awards/"),
-    ("GrepBeat Recognition",     "https://cj.grepbeat.com/calendar.php"),
-]
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
 
-# National (no relocation required unless flagged)
-SOURCES_NATIONAL = [
-    ("Y Combinator",             "https://www.ycombinator.com/apply"),
-    ("Techstars Anywhere",       "https://www.techstars.com/accelerators/anywhere"),
-    ("gBETA",                    "https://www.gener8tor.com/gbeta"),
-    ("Founder Institute",        "https://fi.co/"),
-    ("Black Ambition Prize",     "https://blackambitionprize.com/"),
-    ("Tory Burch Foundation",    "https://www.toryburchfoundation.org/programs/"),
-    ("Military Founders Lab",    "https://ivmf.syracuse.edu/programs/entrepreneurship/"),
-    ("Warrior Rising",           "https://warriorrising.org/apply/"),
-    # Corporate (rolling, free, remote)
-    ("AWS Activate",             "https://aws.amazon.com/activate/"),
-    ("Microsoft for Startups",   "https://www.microsoft.com/en-us/startups"),
-    ("NVIDIA Inception",         "https://www.nvidia.com/en-us/deep-learning-ai/startups/"),
-    ("Google for Startups",      "https://startup.google.com/"),
-]
-
-SOURCES = SOURCES_TRIANGLE + SOURCES_NC + SOURCES_NATIONAL
-
-# ── Discovery sources ─────────────────────────────────────────────────────────
+ALLOWED_DEADLINE_TYPE = ["Fixed", "Rolling", "Annual - TBD"]
 
 DISCOVERY_SOURCES = [
-    ("GrepBeat Calendar",       "https://cj.grepbeat.com/calendar.php"),
-    ("GrepBeat Newsletters",    "https://cj.grepbeat.com/newsletters.php"),
-    ("NCEEM Accelerators",      "https://nceem.org/keyword/accelerator-1"),
-    ("NCEEM Pitch",             "https://nceem.org/keyword/pitch-competition"),
-    ("NCEEM Funding",           "https://nceem.org/keyword/provides-funding-to-ventures"),
-    ("WRAL Accelerators",       "https://startupguide.wraltechwire.com/accelerators-mentorship-programs/"),
-    ("WRAL Funding",            "https://startupguide.wraltechwire.com/competitions-grants-other-funding/"),
+    ("GrepBeat Calendar",  "https://cj.grepbeat.com/calendar.php"),
+    ("NCEEM Accelerators", "https://nceem.org/keyword/accelerator-1"),
+    ("NCEEM Funding",      "https://nceem.org/keyword/provides-funding-to-ventures"),
+    ("WRAL Accelerators",  "https://startupguide.wraltechwire.com/accelerators-mentorship-programs/"),
+    ("WRAL Funding",       "https://startupguide.wraltechwire.com/competitions-grants-other-funding/"),
 ]
 
-# ── Schema field specs (printed if Meta API returns 403) ──────────────────────
-
-SCHEMA_FIELD_SPECS = [
-    {
-        "name": "Status", "type": "singleSelect",
-        "options": {"choices": [
-            {"name": "Pending Review"}, {"name": "Approved"},
-            {"name": "Rejected"},       {"name": "Archived"},
-        ]},
-    },
-    {
-        "name": "Next Deadline", "type": "date",
-        "options": {"dateFormat": {"name": "iso"}},
-    },
-    {
-        "name": "Deadline Type", "type": "singleSelect",
-        "options": {"choices": [
-            {"name": "Fixed"}, {"name": "Rolling"}, {"name": "Annual - TBD"},
-        ]},
-    },
-    {"name": "Cycle Name", "type": "singleLineText"},
-    {
-        "name": "Audience", "type": "multipleSelects",
-        "options": {"choices": [
-            {"name": "Women Founders"},   {"name": "Black Founders"},
-            {"name": "Latino Founders"},  {"name": "LGBTQ+ Founders"},
-            {"name": "Student Founders"}, {"name": "Veteran Founders"},
-            {"name": "All Founders"},
-        ]},
-    },
-    {
-        "name": "Relocation Required", "type": "checkbox",
-        "options": {"icon": "check", "color": "greenBright"},
-    },
-    {
-        "name": "Last Verified", "type": "date",
-        "options": {"dateFormat": {"name": "iso"}},
-    },
-    {"name": "Discovery Source", "type": "singleLineText"},
-]
-
-
-def try_create_schema_fields() -> None:
-    """
-    Attempt to create new schema fields via Airtable Meta API.
-    If API key lacks schema permissions (403), print the full field specs
-    for manual setup and continue — do not exit.
-    """
-    if not AIRTABLE_API_KEY:
-        return
-    headers = {
-        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
-        "Content-Type":  "application/json",
-    }
-    print("Attempting to create schema fields via Airtable Meta API…", flush=True)
-    failed_403 = False
-    for spec in SCHEMA_FIELD_SPECS:
-        try:
-            resp = requests.post(
-                AIRTABLE_META_FIELDS_URL, headers=headers,
-                json=spec, timeout=5,
-            )
-            if resp.status_code == 403:
-                failed_403 = True
-                break
-            if resp.status_code == 422:
-                # Field likely already exists
-                err = resp.json().get("error", {}).get("message", "")
-                if "already exists" in err.lower() or "DUPLICATE_FIELD" in resp.text:
-                    print(f"  {spec['name']!r}: already exists — skipping")
-                else:
-                    print(f"  {spec['name']!r}: 422 — {err}")
-            elif resp.status_code in (200, 201):
-                print(f"  {spec['name']!r}: created OK")
-            else:
-                print(f"  {spec['name']!r}: HTTP {resp.status_code} — {resp.text[:200]}")
-        except Exception as exc:
-            print(f"  {spec['name']!r}: ERROR — {exc}")
-
-    if failed_403:
-        print(
-            "\n  Meta API returned 403 — API key lacks schema permissions.\n"
-            "  Create these fields manually in Airtable:\n"
-        )
-        for spec in SCHEMA_FIELD_SPECS:
-            print(f"  Field: {spec['name']!r}  type={spec['type']}")
-            if "options" in spec and "choices" in spec["options"]:
-                choices = [c["name"] for c in spec["options"]["choices"]]
-                print(f"    Choices: {choices}")
-        print()
-
-
-# ── URL normalization ─────────────────────────────────────────────────────────
+# ── Small utilities ───────────────────────────────────────────────────────────
 
 def _norm_url(url: str) -> str:
-    """Normalize a URL: lowercase, strip trailing slash, drop query/fragment."""
     parsed = urlparse(url.lower().strip())
     return parsed.scheme + "://" + parsed.netloc + parsed.path.rstrip("/")
 
 
-# ── Dedup index ───────────────────────────────────────────────────────────────
-
-class ExistingPrograms:
-    """Multi-key index of Airtable programs for duplicate detection."""
-
-    def __init__(self) -> None:
-        # Dedup keys (per spec priority order)
-        self.by_url_cycle:      set[tuple[str, str]] = set()  # (norm_url, cycle.lower())
-        self.by_name_cycle:     set[tuple[str, str]] = set()  # (name.lower(), cycle.lower())
-        self.by_name_deadline:  set[tuple[str, str]] = set()  # (name.lower(), deadline_date)
-        # Full records for Pass 1 refresh
-        self.records: list[dict] = []
-
-    def add_record(self, fields: dict, record_id: str) -> None:
-        prog_url   = str(fields.get("Program URL", "") or "").strip()
-        name       = str(fields.get("Program Name", "") or "").lower().strip()
-        cycle_name = str(fields.get("Cycle Name", "")   or "").lower().strip()
-        deadline   = str(fields.get("Next Deadline", "") or "").strip()[:10]
-
-        if prog_url:
-            self.by_url_cycle.add((_norm_url(prog_url), cycle_name))
-        if name:
-            self.by_name_cycle.add((name, cycle_name))
-            if deadline:
-                self.by_name_deadline.add((name, deadline))
-
-        self.records.append({"id": record_id, "fields": fields})
-
-    def match(self, program: dict) -> str | None:
-        """Return reason string if duplicate, else None."""
-        prog_url   = str(program.get("source_url", "") or "").strip()
-        cycle_name = str(program.get("cycle_name", "") or "").lower().strip()
-        name       = str(program.get("name", "") or "").lower().strip()
-        deadline   = str(program.get("next_deadline", "") or "").strip()[:10]
-
-        if prog_url and (_norm_url(prog_url), cycle_name) in self.by_url_cycle:
-            return "url+cycle"
-        if name and (name, cycle_name) in self.by_name_cycle:
-            return "name+cycle"
-        if name and deadline and (name, deadline) in self.by_name_deadline:
-            return "name+deadline"
-        return None
-
-    def register(self, program: dict) -> None:
-        """Register a newly created program so subsequent iterations see it."""
-        prog_url   = str(program.get("source_url", "") or "").strip()
-        name       = str(program.get("name", "") or "").lower().strip()
-        cycle_name = str(program.get("cycle_name", "") or "").lower().strip()
-        deadline   = str(program.get("next_deadline", "") or "").strip()[:10]
-
-        if prog_url:
-            self.by_url_cycle.add((_norm_url(prog_url), cycle_name))
-        if name:
-            self.by_name_cycle.add((name, cycle_name))
-            if deadline:
-                self.by_name_deadline.add((name, deadline))
-
-
-def get_existing_programs() -> ExistingPrograms:
-    """Fetch all Airtable programs and build a multi-key dedup index."""
-    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
-    params: dict = {
-        "fields[]": [
-            "Program Name", "Program URL", "Status",
-            "Next Deadline", "Cycle Name", "Last Verified",
-        ]
-    }
-    existing = ExistingPrograms()
-
-    while True:
-        resp = requests.get(AIRTABLE_PROGRAMS_URL, headers=headers, params=params, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        for record in data.get("records", []):
-            existing.add_record(record.get("fields", {}), record["id"])
-        offset = data.get("offset")
-        if not offset:
-            break
-        params["offset"] = offset
-
-    return existing
-
-
-# ── Airtable write helpers ────────────────────────────────────────────────────
-
-def _at_headers() -> dict:
-    return {
-        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
-        "Content-Type":  "application/json",
-    }
-
-
-def patch_program_record(record_id: str, fields: dict, dry_run: bool = False) -> None:
-    """PATCH specific fields on an existing program record."""
-    if dry_run:
-        print(f"  [DRY RUN] WOULD PATCH {record_id}: {fields}")
-        return
-    url  = f"{AIRTABLE_PROGRAMS_URL}/{record_id}"
-    resp = requests.patch(url, headers=_at_headers(), json={"fields": fields}, timeout=30)
-    resp.raise_for_status()
-    time.sleep(0.25)
-
-
-def _program_display_name(name: str, cycle_name: str) -> str:
-    """Return 'Name — Cycle' if cycle is non-empty, else just name."""
-    name  = _strip_emojis(str(name or "").strip())
-    cycle = str(cycle_name or "").strip()
-    return f"{name} — {cycle}" if cycle else name
-
-
-_DATETIME_NAME_RE = re.compile(
-    r"^\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}",
-    re.IGNORECASE,
-)
-
-
-def is_valid_program(program: dict) -> tuple[bool, str]:
-    """Return (True, '') or (False, reason)."""
-    if not isinstance(program, dict):
-        return False, "not a dict"
-    name = str(program.get("name", "") or "").strip()
-    url  = str(program.get("source_url", "") or "").strip()
-    if not name:
-        return False, "empty name"
-    if _DATETIME_NAME_RE.match(name):
-        return False, "name looks like a datetime string"
-    if not url:
-        return False, "empty source_url"
-    if re.search(r"eepurl\.com|mailchi\.mp|campaign-archive", url):
-        return False, "source_url is a newsletter/mailing-list link, not a program page"
-    deadline_type = program.get("deadline_type", "")
-    next_deadline = str(program.get("next_deadline", "") or "").strip()
-    if deadline_type == "Fixed" and not next_deadline:
-        return False, "Deadline Type=Fixed but next_deadline is empty"
-    reloc = program.get("relocation_required", False)
-    prog_name_lower = name.lower()
-    if reloc and "y combinator" not in prog_name_lower and "yc" not in prog_name_lower:
-        print(f"  WARNING: relocation_required=true for non-YC program {name!r} — setting False")
-        program["relocation_required"] = False
-    return True, ""
-
-
-def create_program_record(
-    program: dict,
-    orgs: dict[str, str],
-    discovery_source: str = "",
-    dry_run: bool = False,
-) -> dict | None:
-    """Write a single program to Airtable as Pending Review. Returns API response or None."""
-    name       = str(program.get("name", "") or "").strip()
-    cycle_name = str(program.get("cycle_name", "") or "").strip()
-    display_name = _program_display_name(name, cycle_name)
-
-    host       = str(program.get("host", "") or "").strip()
-    org_rec_id = resolve_org(host, orgs) if host else None
-
-    fields: dict = {
-        "Program Name":  display_name,
-        "Status":        "Pending Review",
-        "Last Verified": TODAY,
-    }
-
-    if org_rec_id:
-        fields["Organization"] = [org_rec_id]
-
-    source_url = str(program.get("source_url", "") or "").strip()
-    if source_url:
-        fields["Program URL"] = source_url
-
-    desc = str(program.get("description", "") or "").strip()
-    if desc:
-        fields["Description"] = desc
-
-    who = str(program.get("who_its_for", "") or "").strip()
-    if who:
-        fields["Who It's For"] = who
-
-    # Deadline fields
-    next_deadline  = str(program.get("next_deadline", "")  or "").strip()
-    deadline_type  = str(program.get("deadline_type", "")  or "").strip()
-    if next_deadline and re.match(r"\d{4}-\d{2}-\d{2}", next_deadline):
-        fields["Next Deadline"] = next_deadline
-    if deadline_type in ALLOWED_DEADLINE_TYPE:
-        fields["Deadline Type"] = deadline_type
-    if cycle_name:
-        fields["Cycle Name"] = cycle_name
-
-    # Audience (multi-select)
-    audience = program.get("audience", [])
-    if isinstance(audience, list):
-        valid_audience = [a for a in audience if a in ALLOWED_AUDIENCE]
-        if not valid_audience:
-            valid_audience = ["All Founders"]
-        fields["Audience"] = valid_audience
-
-    # Relocation required
-    fields["Relocation Required"] = bool(program.get("relocation_required", False))
-
-    # Program Type (single select)
-    program_type = str(program.get("program_type", "") or "").strip()
-    if program_type in ALLOWED_PROGRAM_TYPE:
-        fields["Program Type"] = program_type
-
-    # Stage Served (multi-select)
-    stage = program.get("stage_served", [])
-    if isinstance(stage, list):
-        valid_stage = [v for v in stage if v in ALLOWED_STAGE_SERVED]
-        if valid_stage:
-            fields["Stage Served"] = valid_stage
-
-    # What You Offer (multi-select)
-    offer = program.get("what_you_offer", [])
-    if isinstance(offer, list):
-        valid_offer = [v for v in offer if v in ALLOWED_WHAT_YOU_OFFER]
-        if valid_offer:
-            fields["What You Offer"] = valid_offer
-
-    # Geographic Scope (single select)
-    geo = str(program.get("geo_scope", "") or "").strip()
-    if geo in ALLOWED_GEO_SCOPE:
-        fields["Geographic Scope"] = geo
-
-    # Cost (single select)
-    cost = str(program.get("cost", "") or "").strip()
-    if cost in ALLOWED_COST:
-        fields["Cost"] = cost
-
-    # Location/Remote (single select)
-    loc_remote = str(program.get("location_remote", "") or "").strip()
-    if loc_remote in ALLOWED_LOCATION_REMOTE:
-        fields["Location / Remote"] = loc_remote
-
-    # Discovery Source
-    ds = discovery_source or str(program.get("discovery_source", "") or "").strip()
-    if ds:
-        fields["Discovery Source"] = ds
-
-    if dry_run:
-        print(f"  [DRY RUN] WOULD CREATE: {display_name!r}")
-        return None
-
-    resp = requests.post(AIRTABLE_PROGRAMS_URL, headers=_at_headers(), json={"fields": fields}, timeout=30)
-    resp.raise_for_status()
-    time.sleep(0.25)
-    return resp.json()
-
-
-# ── JSON parsing helpers ──────────────────────────────────────────────────────
-
-def _parse_json_array(text: str) -> list[dict]:
-    """Extract a JSON array from Claude response text."""
-    text = text.strip()
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            return data
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
-    if match:
-        try:
-            data = json.loads(match.group(1))
-            if isinstance(data, list):
-                return data
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    start = text.find("[")
-    end   = text.rfind("]")
-    if start != -1 and end != -1 and end > start:
-        try:
-            data = json.loads(text[start:end + 1])
-            if isinstance(data, list):
-                return data
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    if text:
-        print(f"  WARNING: Could not parse JSON array: {text[:300]}")
-    return []
-
-
-def _parse_json_object(text: str) -> dict:
-    """Extract a JSON object from Claude response text."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except (json.JSONDecodeError, ValueError):
-        pass
-    return {}
-
-
-# ── Enum validation helper ────────────────────────────────────────────────────
-
-def _validate_enums(program: dict, source_label: str) -> dict:
-    """
-    Validate all enum fields against their allowed lists.
-    Log WARNING for invalid values. Never write unvalidated values.
-    Returns the program dict with invalid enum values removed/corrected.
-    """
-    name = program.get("name", "?")
-
-    # Single-select fields
-    for field_key, allowed in [
-        ("program_type",    ALLOWED_PROGRAM_TYPE),
-        ("geo_scope",       ALLOWED_GEO_SCOPE),
-        ("cost",            ALLOWED_COST),
-        ("location_remote", ALLOWED_LOCATION_REMOTE),
-        ("deadline_type",   ALLOWED_DEADLINE_TYPE),
-    ]:
-        val = program.get(field_key)
-        if val and isinstance(val, str) and val not in allowed:
-            print(f"  WARNING: {source_label!r} / {name!r}: invalid {field_key}={val!r} — clearing")
-            program[field_key] = ""
-
-    # Multi-select fields
-    for field_key, allowed in [
-        ("stage_served",   ALLOWED_STAGE_SERVED),
-        ("what_you_offer", ALLOWED_WHAT_YOU_OFFER),
-        ("audience",       ALLOWED_AUDIENCE),
-    ]:
-        val = program.get(field_key, [])
-        if isinstance(val, list):
-            invalid = [v for v in val if v not in allowed]
-            if invalid:
-                print(f"  WARNING: {source_label!r} / {name!r}: invalid {field_key} values {invalid!r} — dropping")
-            program[field_key] = [v for v in val if v in allowed]
-
-    return program
-
-
-# ── Claude extraction ─────────────────────────────────────────────────────────
-
-_EXTRACTION_SCHEMA = (
-    "Return ONLY a valid JSON array. Each element must have these keys:\n"
-    "  name (string — program name only, no org prefix),\n"
-    "  program_type (one of: {program_types}),\n"
-    "  description (1-2 sentences, third person, plain language, no URLs/registration/marketing),\n"
-    "  host (string — organization running the program),\n"
-    "  stage_served (array from: {stage_served}),\n"
-    "  what_you_offer (array from: {what_you_offer}),\n"
-    "  geo_scope (one of: {geo_scope} — Triangle-Local=primarily NC Research Triangle area,\n"
-    "    NC-Regional=statewide NC, National=US-wide no relocation required, Global=worldwide),\n"
-    "  cost (one of: {cost}),\n"
-    "  location_remote (one of: {location_remote}),\n"
-    "  audience (array from: {audience} — use [\"All Founders\"] if unrestricted),\n"
-    "  relocation_required (bool — true ONLY for Y Combinator in-person cohort),\n"
-    "  deadline_type (one of: {deadline_type}),\n"
-    "  next_deadline (YYYY-MM-DD if a specific deadline is visible anywhere on the page, else empty string),\n"
-    "  cycle_name (e.g. \"Fall 2026\" or \"Spring 2026\" if a named cohort, else empty string),\n"
-    "  source_url (the program's specific page URL — NOT the org homepage unless no better URL exists).\n\n"
-    "SCOPE RULES:\n"
-    "  IN: Accelerators, incubators, bootcamps, grants, competitions, fellowships,\n"
-    "      recognition programs, corporate startup programs with an application.\n"
-    "  IN: Triangle-local, NC-statewide, national programs NOT requiring relocation.\n"
-    "  IN: Remote/hybrid national programs.\n"
-    "  IN: Student-only programs (tag Student Founders in audience).\n"
-    "  OUT: Ongoing advisory services with no application (SBTDC counseling, VBOC).\n"
-    "  OUT: Programs whose audience is not founders.\n"
-    "  OUT: City-bound cohorts outside NC (exception: Y Combinator — keep, relocation_required=true).\n"
-    "  NEVER create a record with deadline_type=Fixed and empty next_deadline.\n"
-    "  Return [] if no applicable programs found.\n\n"
-    "DEDUP RULES:\n"
-    "  For programs with many city/location variants (e.g. gBETA Chicago, gBETA Fargo, gBETA Nevada):\n"
-    "    - Include ONLY the national/remote version, OR any NC-specific cohort.\n"
-    "    - Do NOT create one record per city outside NC.\n"
-    "  For each program URL, return at most ONE record:\n"
-    "    - If a current named cohort (e.g. 'Fall 2026') is visible, use it; skip the generic entry.\n"
-    "    - If only a generic program is visible, return it once.\n\n"
-    "DEADLINE RULES:\n"
-    "  Scan the ENTIRE page for dates near words: deadline, apply by, applications close,\n"
-    "  applications due, submit by, last day to apply, open until.\n"
-    "  If you find a date, set deadline_type=Fixed and next_deadline=YYYY-MM-DD.\n"
-    "  If the program is always open with no window, use Rolling.\n"
-    "  If there is an annual cycle but no date visible yet, use Annual - TBD."
-)
+def _registered_domain(url: str) -> str:
+    """crude eTLD+1: last two labels of the hostname."""
+    host = urlparse(url).netloc.lower().split(":")[0]
+    parts = host.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
 _DATE_RE = re.compile(
@@ -621,814 +109,563 @@ _DATE_RE = re.compile(
 )
 _DEADLINE_KW_RE = re.compile(
     r"deadline|apply\s+by|applications?\s+(?:close|due|open|end)|due\s+date|"
-    r"submit\s+by|last\s+day\s+to\s+apply|open\s+until|accepting\s+applications",
+    r"submit\s+by|last\s+day\s+to\s+apply|open\s+until|accepting\s+applications|"
+    r"applications?\s+are\s+(?:now\s+)?open",
     re.IGNORECASE,
 )
-_APPLY_LINK_RE = re.compile(
-    r"apply|application|deadline|register|grant-cycle|cohort|cycle|fellowship",
-    re.IGNORECASE,
-)
+_LINK_SCORES = [
+    (re.compile(r"deadline|grant-cycle", re.I), 4),
+    (re.compile(r"apply|application|admission", re.I), 3),
+    (re.compile(r"cycle|cohort|batch", re.I), 2),
+    (re.compile(r"20\d\d", re.I), 2),
+    (re.compile(r"register|fellowship|program", re.I), 1),
+]
 
 
-def _search_deadline(program_name: str, client: anthropic.Anthropic) -> str:
-    """
-    Search DuckDuckGo for the program's current application deadline.
-    Returns YYYY-MM-DD string or empty string.
-    """
-    query = f"{program_name} 2026 application deadline"
-    try:
-        resp = requests.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": query},
-            headers={**BROWSER_HEADERS, "Accept-Language": "en-US,en;q=0.9"},
-            timeout=10,
-        )
-        soup = BeautifulSoup(resp.text, "html.parser")
-        snippets = []
-        for el in soup.select(".result__snippet, .result__body"):
-            text = el.get_text(" ", strip=True)
-            if _DEADLINE_KW_RE.search(text) and _DATE_RE.search(text):
-                snippets.append(text)
-            if len(snippets) >= 5:
-                break
-        if not snippets:
-            return ""
-        context = "\n".join(snippets)
-        prompt = (
-            f"From these search result snippets about '{program_name}', "
-            f"extract the application deadline date for the 2026 cycle.\n"
-            f"Return ONLY valid JSON: {{\"next_deadline\": \"YYYY-MM-DD or empty\"}}\n\n"
-            f"Snippets:\n{context}"
-        )
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=60,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = "".join(b.text for b in response.content if hasattr(b, "type") and b.type == "text")
-        parsed = _parse_json_object(raw)
-        nd = str(parsed.get("next_deadline", "") or "").strip()[:10]
-        return nd if re.match(r"\d{4}-\d{2}-\d{2}", nd) else ""
-    except Exception:
-        return ""
-
-
-def _deadline_hints(page_text: str) -> str:
-    """Extract lines mentioning both a deadline keyword and a date. Used as Claude context."""
+def _deadline_hints(page_text: str) -> list[str]:
+    """Lines that mention both a date and deadline language."""
     hits = []
     for line in page_text.splitlines():
         if _DEADLINE_KW_RE.search(line) and _DATE_RE.search(line):
             hits.append(line.strip())
-        if len(hits) >= 10:
+        if len(hits) >= 12:
             break
-    return "\n".join(hits)
+    return hits
 
 
-def _find_apply_links(links: list[str], base_url: str) -> list[str]:
-    """Return up to 3 links that look like application or deadline pages."""
-    candidates = [
-        l for l in links
-        if l.startswith("http") and l != base_url and _APPLY_LINK_RE.search(l)
-    ]
-    return candidates[:3]
-
-
-def _build_extraction_prompt(label: str, url: str, page_text: str) -> str:
-    schema = _EXTRACTION_SCHEMA.format(
-        program_types=", ".join(ALLOWED_PROGRAM_TYPE),
-        stage_served=", ".join(ALLOWED_STAGE_SERVED),
-        what_you_offer=", ".join(ALLOWED_WHAT_YOU_OFFER),
-        geo_scope=", ".join(ALLOWED_GEO_SCOPE),
-        cost=", ".join(ALLOWED_COST),
-        location_remote=", ".join(ALLOWED_LOCATION_REMOTE),
-        audience=", ".join(ALLOWED_AUDIENCE),
-        deadline_type=", ".join(ALLOWED_DEADLINE_TYPE),
-    )
-    hints = _deadline_hints(page_text)
-    hint_block = f"\nDEADLINE HINTS (lines mentioning dates + deadlines):\n{hints}\n" if hints else ""
-    return (
-        f"Extract all startup programs a founder can apply to from this page for '{label}' ({url}).\n\n"
-        f"{schema}\n"
-        f"{hint_block}\n"
-        f"Page content:\n{page_text}"
-    )
-
-
-def _claude_extract_programs(
-    label: str, url: str, page_text: str, client: anthropic.Anthropic
-) -> list[dict]:
-    """Send page_text to Claude; return parsed list of programs."""
-    prompt = _build_extraction_prompt(label, url, page_text)
+def _parse_json_object(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except Exception as exc:
-        print(f"  ERROR: Claude call failed for {label!r} — {exc}")
-        return []
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            data = json.loads(text[start:end + 1])
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return {}
 
-    raw = "".join(
-        b.text for b in response.content
-        if hasattr(b, "type") and b.type == "text"
-    )
-    programs = _parse_json_array(raw)
-    return [_validate_enums(p, label) for p in programs]
 
+# ── Page fetching ─────────────────────────────────────────────────────────────
 
-# ── Page fetching (Playwright) ────────────────────────────────────────────────
-
-def _playwright_fetch(url: str, label: str) -> tuple[str, list[str]]:
+def _fetch_page(url: str) -> tuple[str, list[tuple[str, str]], int]:
     """
-    Render a page with Playwright. Returns (page_text, links_on_page).
-    Returns ("", []) on failure.
+    Fetch a page with requests. Returns (text, [(abs_href, anchor_text)], status).
+    Returns ("", [], status) on failure.
     """
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page    = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
-            page.goto(url, timeout=30000)
-            try:
-                page.wait_for_load_state("networkidle", timeout=10000)
-            except Exception:
-                pass  # proceed with whatever loaded
-            page.wait_for_timeout(1500)
-            text  = page.inner_text("body")
-            links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
-            browser.close()
-    except Exception as exc:
-        print(f"  SKIP (Playwright failed): {label} — {exc}")
-        return "", []
-
-    lines = [l for l in text.splitlines() if l.strip()]
-    return "\n".join(lines), list(dict.fromkeys(links))
-
-
-def _requests_fetch(url: str, label: str) -> str:
-    """Fetch a page with requests. Returns page text or '' on failure."""
-    try:
-        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=20)
-        resp.raise_for_status()
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=15)
+        status = resp.status_code
+        if status >= 400:
+            return "", [], status
         soup = BeautifulSoup(resp.text, "html.parser")
+        links = []
+        for a in soup.find_all("a", href=True):
+            href = urljoin(url, a["href"].strip())
+            if href.startswith("http"):
+                links.append((href, a.get_text(" ", strip=True)[:120]))
         for tag in soup(["script", "style", "nav", "footer", "noscript"]):
             tag.decompose()
-        return soup.get_text(separator="\n", strip=True)
+        return soup.get_text(separator="\n", strip=True), links, status
+    except Exception:
+        return "", [], 0
+
+
+def _playwright_fetch(url: str, label: str) -> tuple[str, list[tuple[str, str]]]:
+    """Render a JS-heavy page. Returns (text, links) or ("", [])."""
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
+            page.goto(url, timeout=30000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
+            page.wait_for_timeout(1200)
+            anchors = page.eval_on_selector_all(
+                "a[href]",
+                "els => els.map(e => [e.href, (e.textContent || '').trim().slice(0, 120)])",
+            )
+            text = page.evaluate("document.body ? document.body.innerText : ''")
+            browser.close()
+            links = [(h, t) for h, t in anchors if isinstance(h, str) and h.startswith("http")]
+            return text or "", links
     except Exception as exc:
-        print(f"  SKIP (fetch failed): {label} — {exc}")
-        return ""
+        print(f"    Playwright failed for {label}: {exc}", flush=True)
+        return "", []
 
 
-def _is_404_or_gone(text: str, status_code: int | None = None) -> bool:
-    if status_code and status_code >= 400:
-        return True
+def _is_404_or_gone(text: str) -> bool:
     patterns = [
         re.compile(r"page not found|404 not found|this page (could not|doesn.t|does not) exist", re.I),
         re.compile(r"program (has ended|is no longer|has been discontinued|not available)", re.I),
-        re.compile(r"application (is closed|are closed|period has ended)", re.I),
     ]
-    for pat in patterns:
-        if pat.search(text[:3000]):
-            return True
-    return False
+    return any(p.search(text[:3000]) for p in patterns)
 
 
-def fetch_source_page(label: str, url: str, client: anthropic.Anthropic) -> list[dict]:
-    """
-    Full pipeline for one curated source:
-    1. Playwright render
-    2. Claude extraction
-    3. Follow program-detail links one level deep
-    Returns list of extracted program dicts.
-    """
-    print(f"  Playwright render: {label}…")
-    text, links = _playwright_fetch(url, label)
-    if not text or len(text) < 80:
-        print(f"  SKIP: {label} returned no content")
-        return []
+# ── Deadline hunting ──────────────────────────────────────────────────────────
 
-    # Build page_text: body + program-detail links appended
-    prog_links = [l for l in links if l != url and l.startswith("http")]
-    page_text = text[:12000]
-    if prog_links:
-        page_text += "\n\nLINKS ON PAGE:\n" + "\n".join(prog_links[:80])
-
-    print(f"  {label}: {len(page_text)} chars — extracting via Claude…")
-    programs = _claude_extract_programs(label, url, page_text, client)
-
-    # Follow program-detail links one level deep
-    detail_programs: list[dict] = []
-    seen_detail_urls: set[str] = {url}
-    for prog in programs:
-        detail_url = str(prog.get("source_url", "") or "").strip()
-        if (
-            detail_url
-            and detail_url not in seen_detail_urls
-            and detail_url.startswith("http")
-            and _norm_url(detail_url) != _norm_url(url)
-        ):
-            seen_detail_urls.add(detail_url)
-            detail_text = _requests_fetch(detail_url, f"{label} detail")
-            if detail_text and len(detail_text) > 80:
-                sub = _claude_extract_programs(label, detail_url, detail_text[:8000], client)
-                for s in sub:
-                    if s not in programs and s not in detail_programs:
-                        detail_programs.append(s)
-                time.sleep(0.3)
-
-    all_programs = programs + [p for p in detail_programs if p not in programs]
-    for p in all_programs:
-        p.setdefault("host", label)
-
-    # Dedup by source_url: prefer cycle-named record over generic for same URL
-    url_index: dict[str, int] = {}
-    deduped: list[dict] = []
-    for p in all_programs:
-        key = _norm_url(str(p.get("source_url", "") or ""))
-        if key in url_index:
-            existing = deduped[url_index[key]]
-            if p.get("cycle_name") and not existing.get("cycle_name"):
-                deduped[url_index[key]] = p
-        else:
-            url_index[key] = len(deduped)
-            deduped.append(p)
-    all_programs = deduped
-
-    # For programs still missing a deadline, scan apply/cycle links from the full page
-    apply_links = _find_apply_links(links + prog_links, url)
-    if apply_links:
-        for p in all_programs:
-            if p.get("next_deadline") or p.get("deadline_type") == "Rolling":
-                continue
-            for al in apply_links:
-                if al in seen_detail_urls:
-                    continue
-                seen_detail_urls.add(al)
-                al_text = _requests_fetch(al, f"{label} apply-link")
-                if not al_text:
-                    continue
-                extracted = _extract_deadline_via_claude(
-                    p.get("name", label), al, al_text, client
-                )
-                nd = str(extracted.get("next_deadline", "") or "").strip()[:10]
-                if nd and re.match(r"\d{4}-\d{2}-\d{2}", nd):
-                    p["next_deadline"] = nd
-                    p["deadline_type"] = "Fixed"
-                    if extracted.get("cycle_name"):
-                        p.setdefault("cycle_name", extracted["cycle_name"])
-                    break
-            time.sleep(0.2)
-
-    print(f"  {label}: {len(all_programs)} program(s) extracted")
-    return all_programs
-
-
-# ── Pass 1: Refresh known records ─────────────────────────────────────────────
-
-def _extract_deadline_via_claude(
-    program_name: str, url: str, page_text: str, client: anthropic.Anthropic
+def _ask_claude_deadline(
+    client: anthropic.Anthropic, name: str, url: str, hints: list[str], page_text: str
 ) -> dict:
-    """Ask Claude for just the deadline of a known program. Returns partial dict."""
-    hints = _deadline_hints(page_text)
-    hint_block = f"\nLines mentioning dates + deadlines:\n{hints}\n" if hints else ""
+    """
+    Narrow question: what's the current application deadline for this program?
+    Returns {"next_deadline": "YYYY-MM-DD"|"", "cycle_name": str, "closed": bool}.
+    """
     prompt = (
-        f"Given this page about the program '{program_name}', extract application deadline info.\n"
-        f"Scan the ENTIRE page for dates near words like: deadline, apply by, applications close,\n"
-        f"applications due, submit by, last day to apply, open until.\n"
-        f"Return ONLY valid JSON with these keys:\n"
-        f"  next_deadline: YYYY-MM-DD if a specific deadline is visible, else empty string\n"
-        f"  deadline_type: one of {ALLOWED_DEADLINE_TYPE} or empty string\n"
-        f"  cycle_name: named cohort like 'Fall 2026' or empty string\n"
-        f"{hint_block}\n"
-        f"Page content:\n{page_text[:6000]}"
+        f"Today is {TODAY}. The page below is about the startup program '{name}' ({url}).\n\n"
+        f"Question: what is the CURRENT application deadline, if one is stated?\n"
+        f"Rules:\n"
+        f"- Only report a deadline explicitly stated on the page. Never guess.\n"
+        f"- If a date has no year, resolve it to the next occurrence on or after today.\n"
+        f"- If the page only shows a PAST cycle's deadline, report it anyway (I compare dates).\n"
+        f"- cycle_name is a short cohort label like 'Fall 2026' if stated, else ''.\n"
+        f"- closed=true only if the page says applications are closed/ended.\n"
+        f"Return ONLY JSON: {{\"next_deadline\": \"YYYY-MM-DD or empty\", "
+        f"\"cycle_name\": \"...\", \"closed\": false}}\n\n"
+        f"Lines mentioning dates near deadline language:\n"
+        + "\n".join(hints[:12])
+        + f"\n\nPage text:\n{page_text[:5000]}"
     )
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            model=CLAUDE_MODEL,
+            max_tokens=120,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = "".join(
-            b.text for b in response.content
-            if hasattr(b, "type") and b.type == "text"
-        )
+        raw = "".join(b.text for b in response.content if getattr(b, "type", "") == "text")
         return _parse_json_object(raw)
     except Exception as exc:
-        print(f"    WARNING: Deadline extraction failed for {program_name!r} — {exc}")
+        print(f"    WARNING: Claude deadline call failed — {exc}", flush=True)
         return {}
 
 
-def pass1_refresh(
-    existing: ExistingPrograms,
-    client: anthropic.Anthropic,
-    counters: dict,
-    dry_run: bool,
-) -> None:
-    """
-    Pass 1: Re-fetch each known program's page, re-extract deadline, PATCH if changed.
-    Only refreshes programs with Status = 'Approved' or 'Pending Review'.
-    """
-    refreshable = [
-        r for r in existing.records
-        if r["fields"].get("Program URL")
-        and r["fields"].get("Status", "") in ("Approved", "Pending Review", "Unverified")
-    ]
-    print(f"\n=== Pass 1: Refreshing {len(refreshable)} known programs ===")
-
-    for i, record in enumerate(refreshable, 1):
-        fields      = record["fields"]
-        record_id   = record["id"]
-        prog_url    = str(fields.get("Program URL", "") or "").strip()
-        prog_name   = str(fields.get("Program Name", "") or "").strip()
-        old_deadline = str(fields.get("Next Deadline", "") or "").strip()[:10]
-        status      = str(fields.get("Status", "") or "").strip()
-
-        print(f"  [{i}/{len(refreshable)}] {prog_name[:60]}…")
-
-        # Try requests first, fall back to Playwright
-        page_links: list[str] = []
-        try:
-            resp = requests.get(prog_url, headers=BROWSER_HEADERS, timeout=15)
-            status_code = resp.status_code
-            if status_code >= 400:
-                print(f"    STALE: HTTP {status_code}")
-                counters["stale"] += 1
-                continue
-            soup = BeautifulSoup(resp.text, "html.parser")
-            page_links = [
-                a["href"] for a in soup.find_all("a", href=True)
-                if str(a["href"]).startswith("http")
-            ]
-            for tag in soup(["script", "style", "nav", "footer", "noscript"]):
-                tag.decompose()
-            page_text = soup.get_text(separator="\n", strip=True)
-        except requests.exceptions.ConnectionError:
-            print(f"    STALE: Connection error")
-            counters["stale"] += 1
+def _rank_links(links: list[tuple[str, str]], base_url: str, extra_domains: set[str]) -> list[str]:
+    """Score same-domain links by how likely they lead to deadline info."""
+    base_domain = _registered_domain(base_url)
+    allowed = {base_domain} | extra_domains
+    scored: dict[str, int] = {}
+    for href, anchor in links:
+        if _registered_domain(href) not in allowed:
             continue
-        except Exception as exc:
-            print(f"    WARNING: Fetch failed — {exc}; trying Playwright")
-            page_text, page_links = _playwright_fetch(prog_url, prog_name)
-            if not page_text:
-                print(f"    STALE: Could not fetch page")
-                counters["stale"] += 1
-                continue
+        blob = f"{href} {anchor}"
+        score = sum(pts for pat, pts in _LINK_SCORES if pat.search(blob))
+        if score > 0:
+            key = _norm_url(href)
+            scored[key] = max(scored.get(key, 0), score)
+    return [u for u, _ in sorted(scored.items(), key=lambda kv: -kv[1])]
 
-        if _is_404_or_gone(page_text):
-            print(f"    STALE: Page indicates program no longer available")
-            counters["stale"] += 1
-            patch_fields = {"Last Verified": TODAY}
-            try:
-                patch_program_record(record_id, patch_fields, dry_run)
-            except Exception:
-                pass
+
+def hunt_deadline(program: dict, client: anthropic.Anthropic) -> dict:
+    """
+    Bounded crawl for a cyclical program's current deadline.
+    Returns {"next_deadline": str, "cycle_name": str, "closed": bool,
+             "dead_link": bool, "pages_checked": int}
+    """
+    name = program["name"]
+    start_urls = [program["url"]] + list(program.get("hunt_urls", []))
+    extra_domains = {_registered_domain(u) for u in start_urls}
+
+    started = time.monotonic()
+    queue: list[str] = [u for u in start_urls]
+    seen: set[str] = set()
+    result = {"next_deadline": "", "cycle_name": "", "closed": False,
+              "dead_link": False, "pages_checked": 0}
+    best_past = ""  # most recent past deadline seen, as closed-cycle evidence
+
+    while queue:
+        if result["pages_checked"] >= HUNT_MAX_PAGES:
+            break
+        if time.monotonic() - started > HUNT_MAX_SECONDS:
+            print(f"    Hunt budget exhausted ({HUNT_MAX_SECONDS}s)", flush=True)
+            break
+
+        url = queue.pop(0)
+        key = _norm_url(url)
+        if key in seen:
             continue
+        seen.add(key)
 
-        extracted = _extract_deadline_via_claude(prog_name, prog_url, page_text, client)
-        patch_fields: dict = {"Last Verified": TODAY}
+        text, links, status = _fetch_page(url)
+        is_canonical = url == program["url"]
+        if is_canonical and (not text or len(text) < 200):
+            # JS-heavy page (e.g. ycombinator.com) — render it
+            text, links = _playwright_fetch(url, name)
+        if not text:
+            if is_canonical and status >= 400:
+                result["dead_link"] = True
+            continue
+        if is_canonical and _is_404_or_gone(text):
+            result["dead_link"] = True
 
-        new_deadline = str(extracted.get("next_deadline", "") or "").strip()[:10]
-        new_dtype    = str(extracted.get("deadline_type", "") or "").strip()
-        new_cycle    = str(extracted.get("cycle_name", "") or "").strip()
+        result["pages_checked"] += 1
 
-        # If no fixed deadline yet, follow apply links and retry
-        if not (new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline)):
-            for al in _find_apply_links(page_links, prog_url):
-                al_text = _requests_fetch(al, f"{prog_name} apply-link")
-                if not al_text:
-                    continue
-                al_extracted = _extract_deadline_via_claude(prog_name, al, al_text, client)
-                al_deadline = str(al_extracted.get("next_deadline", "") or "").strip()[:10]
-                if al_deadline and re.match(r"\d{4}-\d{2}-\d{2}", al_deadline):
-                    new_deadline = al_deadline
-                    new_dtype = "Fixed"
-                    new_cycle = new_cycle or str(al_extracted.get("cycle_name", "") or "")
-                    print(f"    Found deadline via apply link: {new_deadline}")
-                    break
-                time.sleep(0.2)
+        # Regex pre-filter: only pay for Claude when the page mentions
+        # dates near deadline language.
+        hints = _deadline_hints(text)
+        if hints:
+            answer = _ask_claude_deadline(client, name, url, hints, text)
+            nd = str(answer.get("next_deadline", "") or "").strip()[:10]
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", nd):
+                try:
+                    nd_date = date.fromisoformat(nd)
+                except ValueError:
+                    nd_date = None
+                if nd_date and nd_date >= TODAY_DATE:
+                    result["next_deadline"] = nd
+                    result["cycle_name"] = str(answer.get("cycle_name", "") or "").strip()[:60]
+                    print(f"    Deadline {nd} found on {url}", flush=True)
+                    return result
+                if nd_date:
+                    best_past = max(best_past, nd)
+            if answer.get("closed") is True:
+                result["closed"] = True
 
-        # Final fallback: web search
-        if not (new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline)):
-            search_deadline = _search_deadline(prog_name, client)
-            if search_deadline:
-                new_deadline = search_deadline
-                new_dtype = "Fixed"
-                print(f"    Found deadline via web search: {new_deadline}")
+        # Enqueue promising same-domain links (canonical + hunt pages only,
+        # so the crawl stays one level deep).
+        if url in start_urls:
+            for ranked in _rank_links(links, url, extra_domains):
+                if ranked not in seen and ranked not in queue:
+                    queue.append(ranked)
 
-        if new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline):
-            if new_deadline != old_deadline:
-                print(f"    CORRECTED: deadline {old_deadline or '(none)'!r} → {new_deadline!r}")
-                patch_fields["Next Deadline"] = new_deadline
-                counters["corrected"] += 1
-            else:
-                print(f"    OK: deadline unchanged ({old_deadline})")
-        else:
-            print(f"    OK: no fixed deadline extracted")
-
-        if new_dtype and new_dtype in ALLOWED_DEADLINE_TYPE:
-            patch_fields["Deadline Type"] = new_dtype
-        if new_cycle:
-            patch_fields["Cycle Name"] = new_cycle
-
-        try:
-            patch_program_record(record_id, patch_fields, dry_run)
-        except Exception as exc:
-            print(f"    WARNING: PATCH failed — {exc}")
-
-        time.sleep(0.2)
+    if best_past:
+        result["closed"] = True
+    return result
 
 
-# ── Pass 2: Curated source sweep ─────────────────────────────────────────────
+# ── Airtable ──────────────────────────────────────────────────────────────────
 
-def pass2_curated(
-    existing: ExistingPrograms,
-    orgs: dict[str, str],
-    client: anthropic.Anthropic,
-    counters: dict,
-    dry_run: bool,
-) -> None:
-    """
-    Pass 2: Scrape SOURCES list. New programs → Pending Review.
-    Existing programs → check/patch deadline as in Pass 1.
-    """
-    print(f"\n=== Pass 2: Curated source sweep ({len(SOURCES)} sources) ===")
-
-    for idx, (label, url) in enumerate(SOURCES, 1):
-        print(f"\n  [{idx}/{len(SOURCES)}] {label}…")
-        programs = fetch_source_page(label, url, client)
-        time.sleep(0.25)
-
-        for program in programs:
-            ok, reason = is_valid_program(program)
-            if not ok:
-                print(f"    SKIP (invalid — {reason}): {program.get('name', '?')!r}")
-                continue
-
-            dup_reason = existing.match(program)
-            if dup_reason:
-                # On match for curated source: check if deadline differs, patch if so
-                print(f"    KNOWN ({dup_reason}): {program.get('name', '?')!r}")
-                _patch_if_deadline_changed(program, existing, orgs, counters, dry_run)
-                counters["skipped_dup"] += 1
-                continue
-
-            # New program
-            try:
-                create_program_record(program, orgs, dry_run=dry_run)
-                display = _program_display_name(
-                    program.get("name", ""), program.get("cycle_name", "")
-                )
-                print(f"    ADDED: {display!r}")
-                existing.register(program)
-                counters["created"] += 1
-                counters["pending"].append(display)
-            except requests.HTTPError as exc:
-                body = exc.response.text if exc.response is not None else ""
-                print(f"    ERROR adding {program.get('name')!r}: {exc} — {body[:200]}")
+def _at_headers() -> dict:
+    return {"Authorization": f"Bearer {AIRTABLE_API_KEY}",
+            "Content-Type": "application/json"}
 
 
-def _patch_if_deadline_changed(
+def fetch_airtable_programs() -> list[dict]:
+    records, params = [], {}
+    while True:
+        resp = requests.get(AIRTABLE_PROGRAMS_URL, headers=_at_headers(),
+                            params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        records.extend(data.get("records", []))
+        if not data.get("offset"):
+            return records
+        params["offset"] = data["offset"]
+
+
+def fetch_organizations() -> dict[str, str]:
+    """Map of lowercase org name → record id."""
+    orgs, params = {}, {"fields[]": ["Organization Name"]}
+    while True:
+        resp = requests.get(AIRTABLE_ORGS_URL, headers=_at_headers(),
+                            params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        for r in data.get("records", []):
+            name = str(r.get("fields", {}).get("Organization Name", "")).strip()
+            if name:
+                orgs[name.lower()] = r["id"]
+        if not data.get("offset"):
+            return orgs
+        params["offset"] = data["offset"]
+
+
+def _match_org(org_name: str, orgs: dict[str, str]) -> str | None:
+    key = org_name.lower().strip()
+    if key in orgs:
+        return orgs[key]
+    close = difflib.get_close_matches(key, orgs.keys(), n=1, cutoff=0.85)
+    return orgs[close[0]] if close else None
+
+
+def _find_record(program: dict, records: list[dict]) -> dict | None:
+    """Match a registry program to an Airtable record by URL, then name."""
+    target_url  = _norm_url(program["url"])
+    target_name = program["name"].lower().strip()
+    by_name = None
+    for r in records:
+        f = r.get("fields", {})
+        rec_url  = str(f.get("Program URL", "") or "").strip()
+        rec_name = str(f.get("Program Name", "") or "").lower().strip()
+        if rec_url and _norm_url(rec_url) == target_url:
+            return r
+        # tolerate legacy "Name — Cycle" display names
+        if by_name is None and (rec_name == target_name
+                                or rec_name.startswith(target_name + " —")):
+            by_name = r
+    return by_name
+
+
+def create_record(program: dict, org_id: str | None, dry_run: bool) -> None:
+    fields: dict = {
+        "Program Name":        program["name"],
+        "Description":         str(program.get("description", "")).strip(),
+        "Program URL":         program["url"],
+        "Program Type":        program["type"],
+        "Geographic Scope":    program["geo_scope"],
+        "Cost":                program["cost"],
+        "Location / Remote":   program["location_remote"],
+        "Audience":            program.get("audience", ["All Founders"]),
+        "Relocation Required": bool(program.get("relocation_required", False)),
+        "Deadline Type":       "Rolling" if program["cadence"] == "rolling" else "Annual - TBD",
+        "Status":              "Pending Review",
+        "Discovery Source":    "registry",
+        "Last Verified":       TODAY,
+    }
+    if program.get("stage_served"):
+        fields["Stage Served"] = program["stage_served"]
+    if program.get("what_you_offer"):
+        fields["What You Offer"] = program["what_you_offer"]
+    if org_id:
+        fields["Organization"] = [org_id]
+
+    if dry_run:
+        print(f"    [DRY RUN] WOULD CREATE: {program['name']}", flush=True)
+        return
+    resp = requests.post(AIRTABLE_PROGRAMS_URL, headers=_at_headers(),
+                         json={"fields": fields}, timeout=30)
+    if resp.status_code >= 400:
+        print(f"    ERROR creating {program['name']!r}: {resp.status_code} {resp.text[:200]}",
+              flush=True)
+        return
+    print(f"    CREATED (Pending Review): {program['name']}", flush=True)
+    time.sleep(0.25)
+
+
+def patch_record(record_id: str, fields: dict, dry_run: bool) -> None:
+    if dry_run:
+        print(f"    [DRY RUN] WOULD PATCH {record_id}: {fields}", flush=True)
+        return
+    resp = requests.patch(f"{AIRTABLE_PROGRAMS_URL}/{record_id}",
+                          headers=_at_headers(), json={"fields": fields}, timeout=30)
+    if resp.status_code >= 400:
+        print(f"    ERROR patching {record_id}: {resp.status_code} {resp.text[:200]}",
+              flush=True)
+        return
+    time.sleep(0.25)
+
+
+def _append_note(existing: str, note: str) -> str:
+    stamped = f"[{TODAY}] {note}"
+    return (existing.rstrip() + "\n" + stamped) if existing else stamped
+
+
+# ── Registry sync ─────────────────────────────────────────────────────────────
+
+def load_registry() -> list[dict]:
+    with open(REGISTRY_FILE) as f:
+        registry = yaml.safe_load(f)
+    if not isinstance(registry, list):
+        raise ValueError("programs.yaml must be a list of program entries")
+    required = ["name", "org", "url", "type", "cadence", "geo_scope",
+                "cost", "location_remote", "description"]
+    for entry in registry:
+        missing = [k for k in required if not entry.get(k)]
+        if missing:
+            raise ValueError(f"Registry entry {entry.get('name', '?')!r} missing: {missing}")
+        if entry["cadence"] not in ("cyclical", "rolling"):
+            raise ValueError(f"{entry['name']!r}: cadence must be cyclical or rolling")
+    return registry
+
+
+def sync_program(
     program: dict,
-    existing: ExistingPrograms,
+    records: list[dict],
     orgs: dict[str, str],
+    client: anthropic.Anthropic,
     counters: dict,
     dry_run: bool,
 ) -> None:
-    """
-    For a program that already exists, find its record and PATCH if deadline differs.
-    May PATCH fields on Approved records but never changes their Status.
-    """
-    prog_url   = str(program.get("source_url", "") or "").strip()
-    prog_name  = str(program.get("name", "") or "").lower().strip()
-    cycle_name = str(program.get("cycle_name", "") or "").lower().strip()
-    new_deadline = str(program.get("next_deadline", "") or "").strip()[:10]
+    name = program["name"]
+    record = _find_record(program, records)
 
-    # Find the matching record in existing.records
-    matching_record = None
-    for rec in existing.records:
-        rf = rec["fields"]
-        rec_url   = str(rf.get("Program URL", "") or "").strip()
-        rec_name  = str(rf.get("Program Name", "") or "").lower().strip()
-        rec_cycle = str(rf.get("Cycle Name", "") or "").lower().strip()
-        if prog_url and rec_url and _norm_url(rec_url) == _norm_url(prog_url) and rec_cycle == cycle_name:
-            matching_record = rec
-            break
-        if prog_name and rec_name == prog_name and rec_cycle == cycle_name:
-            matching_record = rec
-            break
-
-    if not matching_record:
+    if record is None:
+        create_record(program, _match_org(program["org"], orgs), dry_run)
+        counters["created"] += 1
+        if program["cadence"] == "rolling":
+            return
+        # fall through to hunt for brand-new cyclical programs? We can't patch
+        # a record we didn't get an id back for in dry-run; hunt next week.
+        print(f"    (deadline hunt starts next run, once the record exists)", flush=True)
         return
 
-    old_deadline = str(matching_record["fields"].get("Next Deadline", "") or "").strip()[:10]
-    patch_fields: dict = {"Last Verified": TODAY}
+    fields       = record.get("fields", {})
+    record_id    = record["id"]
+    old_deadline = str(fields.get("Next Deadline", "") or "").strip()[:10]
+    patch: dict  = {"Last Verified": TODAY}
 
-    if new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline) and new_deadline != old_deadline:
-        display = _program_display_name(program.get("name", ""), program.get("cycle_name", ""))
-        print(f"    CORRECTED: {display!r} deadline {old_deadline!r} → {new_deadline!r}")
-        patch_fields["Next Deadline"]        = new_deadline
-        counters["corrected"] += 1
+    if program["cadence"] == "rolling":
+        text, _, status = _fetch_page(program["url"])
+        if status >= 400 or (text and _is_404_or_gone(text)):
+            patch["Pending Changes"] = _append_note(
+                str(fields.get("Pending Changes", "") or ""),
+                f"DEAD LINK: {program['url']} returned {status or 'error page'}")
+            counters["dead_links"] += 1
+            print(f"    DEAD LINK ({status})", flush=True)
+        patch_record(record_id, patch, dry_run)
+        return
 
-    # Never change Status
-    dtype = str(program.get("deadline_type", "") or "").strip()
-    if dtype and dtype in ALLOWED_DEADLINE_TYPE:
-        patch_fields["Deadline Type"] = dtype
+    # Cyclical → hunt
+    hunt = hunt_deadline(program, client)
+    counters["pages_crawled"] += hunt["pages_checked"]
 
-    try:
-        patch_program_record(matching_record["id"], patch_fields, dry_run)
-    except Exception as exc:
-        print(f"    WARNING: PATCH failed — {exc}")
+    if hunt["dead_link"]:
+        patch["Pending Changes"] = _append_note(
+            str(fields.get("Pending Changes", "") or ""),
+            f"DEAD LINK: {program['url']}")
+        counters["dead_links"] += 1
 
-
-# ── Pass 3: Discovery sweep ───────────────────────────────────────────────────
-
-def _scrape_grepbeat_calendar(url: str) -> list[dict]:
-    """
-    Parse GrepBeat calendar HTML. Look for DEADLINE:-prefixed entries
-    and program/competition announcements.
-    """
-    text = _requests_fetch(url, "GrepBeat Calendar")
-    if not text:
-        return []
-
-    programs: list[dict] = []
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        line = line.strip()
-        if line.upper().startswith("DEADLINE:") or "DEADLINE:" in line.upper():
-            # Look backwards for a program name
-            name = ""
-            for j in range(max(0, i - 5), i):
-                candidate = lines[j].strip()
-                if len(candidate) > 10 and not candidate.upper().startswith("DEADLINE"):
-                    name = candidate
-            deadline_text = re.sub(r"(?i)deadline:\s*", "", line).strip()
-            deadline_match = re.search(r"(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},?\s*\d{4})", deadline_text)
-            next_deadline = ""
-            if deadline_match:
-                raw_date = deadline_match.group(1)
-                try:
-                    from datetime import datetime
-                    for fmt in ("%Y-%m-%d", "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"):
-                        try:
-                            next_deadline = datetime.strptime(raw_date.strip(), fmt).strftime("%Y-%m-%d")
-                            break
-                        except ValueError:
-                            continue
-                except Exception:
-                    pass
-            if name:
-                programs.append({
-                    "name": name,
-                    "source_url": url,
-                    "host": "GrepBeat",
-                    "discovery_source": "GrepBeat Calendar",
-                    "next_deadline": next_deadline,
-                    "deadline_type": "Fixed" if next_deadline else "Annual - TBD",
-                    "program_type": "Competition",
-                    "description": "",
-                    "geo_scope": "NC-Regional",
-                    "audience": ["All Founders"],
-                    "location_remote": "In-person",
-                    "cost": "Free",
-                    "stage_served": [],
-                    "what_you_offer": [],
-                    "cycle_name": "",
-                    "relocation_required": False,
-                })
-    return programs
-
-
-def _scrape_grepbeat_newsletters(url: str, client: anthropic.Anthropic) -> list[dict]:
-    """
-    Fetch 10 most recent GrepBeat newsletters, resolve eepurl redirects
-    with Playwright, extract program announcements.
-    """
-    print(f"    Fetching newsletter list…")
-    text = _requests_fetch(url, "GrepBeat Newsletters")
-    if not text:
-        return []
-
-    # Find newsletter links — typically eepurl.com or mailchimp archive links
-    newsletter_links: list[str] = []
-    try:
-        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=20)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for a in soup.find_all("a", href=re.compile(r"eepurl\.com|mailchi\.mp|us\d+\.campaign-archive")):
-            href = a.get("href", "").strip()
-            if href and href not in newsletter_links:
-                newsletter_links.append(href)
-    except Exception as exc:
-        print(f"    WARNING: GrepBeat newsletter list fetch failed — {exc}")
-        return []
-
-    newsletter_links = newsletter_links[:10]
-    print(f"    Found {len(newsletter_links)} newsletter link(s)")
-
-    all_programs: list[dict] = []
-    for nl_url in newsletter_links:
-        # Resolve eepurl redirect with Playwright
-        if "eepurl.com" in nl_url:
-            text_body, _ = _playwright_fetch(nl_url, "GrepBeat newsletter")
+    if hunt["next_deadline"]:
+        if hunt["next_deadline"] != old_deadline:
+            print(f"    DEADLINE: {old_deadline or '(none)'} → {hunt['next_deadline']}"
+                  + (f" ({hunt['cycle_name']})" if hunt["cycle_name"] else ""), flush=True)
+            patch["Next Deadline"] = hunt["next_deadline"]
+            patch["Deadline Type"] = "Fixed"
+            if hunt["cycle_name"]:
+                patch["Cycle Name"] = hunt["cycle_name"]
+            counters["deadlines_set"] += 1
         else:
-            text_body = _requests_fetch(nl_url, "GrepBeat newsletter")
-
-        if not text_body or len(text_body) < 100:
-            continue
-
-        # Ask Claude to extract program announcements and DEADLINE: entries
-        prompt = (
-            f"Extract any startup programs, grants, competitions, or accelerators mentioned "
-            f"in this newsletter. Look for DEADLINE: entries and program announcements.\n\n"
-            f"Return ONLY a JSON array. Each element has:\n"
-            f"  name, description (1-2 sentences), next_deadline (YYYY-MM-DD or ''),\n"
-            f"  deadline_type (Fixed/Rolling/Annual - TBD), source_url (link to the program if found).\n"
-            f"Return [] if no programs found.\n\n"
-            f"Newsletter content:\n{text_body[:8000]}"
-        )
+            print(f"    OK: deadline unchanged ({old_deadline})", flush=True)
+    elif old_deadline:
         try:
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = "".join(
-                b.text for b in response.content
-                if hasattr(b, "type") and b.type == "text"
-            )
-            found = _parse_json_array(raw)
-            for p in found:
-                p.setdefault("host", "")
-                p.setdefault("discovery_source", "GrepBeat Newsletters")
-                p.setdefault("program_type", "")
-                p.setdefault("geo_scope", "NC-Regional")
-                p.setdefault("audience", ["All Founders"])
-                p.setdefault("location_remote", "")
-                p.setdefault("cost", "")
-                p.setdefault("stage_served", [])
-                p.setdefault("what_you_offer", [])
-                p.setdefault("cycle_name", "")
-                p.setdefault("relocation_required", False)
-                if not p.get("source_url"):
-                    p["source_url"] = nl_url
-                all_programs.append(p)
-        except Exception as exc:
-            print(f"    WARNING: Newsletter extraction failed — {exc}")
+            stale = date.fromisoformat(old_deadline) < TODAY_DATE
+        except ValueError:
+            stale = True
+        if stale:
+            print(f"    CYCLE CLOSED: clearing passed deadline {old_deadline}", flush=True)
+            patch["Next Deadline"] = None
+            patch["Cycle Name"]    = None
+            patch["Deadline Type"] = "Annual - TBD"
+            patch["Pending Changes"] = _append_note(
+                str(fields.get("Pending Changes", "") or ""),
+                f"Cycle closed (deadline {old_deadline} passed); reset to Annual - TBD")
+            counters["cycles_closed"] += 1
+        else:
+            print(f"    OK: keeping future deadline {old_deadline} (not re-confirmed)", flush=True)
+    else:
+        print(f"    No deadline found ({hunt['pages_checked']} page(s) checked)"
+              + (" — page says applications closed" if hunt["closed"] else ""), flush=True)
 
-        time.sleep(0.5)
-
-    return all_programs
+    patch_record(record_id, patch, dry_run)
 
 
-def _scrape_nceem(url: str, label: str, client: anthropic.Anthropic) -> list[dict]:
-    """Scrape NCEEM keyword directory page and extract programs."""
-    text = _requests_fetch(url, label)
-    if not text or len(text) < 80:
+# ── Discovery (leads only — never writes to Airtable) ────────────────────────
+
+def _extract_leads(label: str, url: str, text: str, client: anthropic.Anthropic) -> list[dict]:
+    prompt = (
+        f"The text below is from '{label}' ({url}), a page that mentions startup "
+        f"programs, grants, accelerators, and competitions in North Carolina.\n"
+        f"List the distinct PROGRAM NAMES mentioned (not events, not articles).\n"
+        f"Return ONLY a JSON array: [{{\"name\": \"...\", \"url\": \"program page URL if "
+        f"shown, else empty\"}}]. Return [] if none.\n\n"
+        f"Text:\n{text[:7000]}"
+    )
+    try:
+        response = client.messages.create(
+            model=CLAUDE_MODEL, max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = "".join(b.text for b in response.content if getattr(b, "type", "") == "text")
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
+        data = json.loads(raw[raw.find("["):raw.rfind("]") + 1]) if "[" in raw else []
+        return [d for d in data if isinstance(d, dict) and d.get("name")]
+    except Exception as exc:
+        print(f"    WARNING: lead extraction failed for {label} — {exc}", flush=True)
         return []
-    print(f"    {label}: {len(text)} chars — extracting via Claude…")
-    return _claude_extract_programs(label, url, text[:10000], client)
 
 
-def _scrape_wral_guide(url: str, label: str, client: anthropic.Anthropic) -> list[dict]:
-    """Scrape a WRAL startup guide page and extract programs."""
-    text = _requests_fetch(url, label)
-    if not text or len(text) < 80:
-        return []
-    print(f"    {label}: {len(text)} chars — extracting via Claude…")
-    return _claude_extract_programs(label, url, text[:10000], client)
-
-
-def pass3_discovery(
-    existing: ExistingPrograms,
-    orgs: dict[str, str],
-    client: anthropic.Anthropic,
-    counters: dict,
-    dry_run: bool,
-) -> None:
-    """
-    Pass 3: Scrape DISCOVERY_SOURCES for new programs.
-    All discovered items not matching existing → Pending Review with Discovery Source set.
-    """
-    print(f"\n=== Pass 3: Discovery sweep ({len(DISCOVERY_SOURCES)} sources) ===")
-
-    all_discovered: list[tuple[str, dict]] = []  # (discovery_source_label, program)
+def run_discovery(registry: list[dict], client: anthropic.Anthropic) -> list[dict]:
+    print(f"\n=== Discovery sweep ({len(DISCOVERY_SOURCES)} sources — leads only) ===",
+          flush=True)
+    known = {p["name"].lower() for p in registry}
+    leads: list[dict] = []
+    seen_names: set[str] = set()
 
     for label, url in DISCOVERY_SOURCES:
-        print(f"\n  Scanning {label}…")
-        programs: list[dict] = []
-
-        if label == "GrepBeat Calendar":
-            programs = _scrape_grepbeat_calendar(url)
-        elif label == "GrepBeat Newsletters":
-            programs = _scrape_grepbeat_newsletters(url, client)
-        elif label.startswith("NCEEM"):
-            programs = _scrape_nceem(url, label, client)
-        elif label.startswith("WRAL"):
-            programs = _scrape_wral_guide(url, label, client)
-        else:
-            text, links = _playwright_fetch(url, label)
-            if text:
-                page_text = text[:10000]
-                if links:
-                    prog_links = [l for l in links if l.startswith("http")][:40]
-                    page_text += "\n\nLINKS:\n" + "\n".join(prog_links)
-                programs = _claude_extract_programs(label, url, page_text, client)
-
-        for p in programs:
-            p.setdefault("discovery_source", label)
-        all_discovered.extend((label, p) for p in programs)
-        print(f"  {label}: {len(programs)} item(s) found")
-        time.sleep(0.5)
-
-    print(f"\n  Processing {len(all_discovered)} discovered item(s)…")
-    for discovery_label, program in all_discovered:
-        ok, reason = is_valid_program(program)
-        if not ok:
-            print(f"    SKIP (invalid — {reason}): {program.get('name', '?')!r}")
+        print(f"  Scanning {label}…", flush=True)
+        text, _, status = _fetch_page(url)
+        if not text:
+            print(f"    skipped (fetch failed, HTTP {status})", flush=True)
             continue
+        for lead in _extract_leads(label, url, text, client):
+            name = str(lead["name"]).strip()
+            key  = name.lower()
+            if key in seen_names or len(name) < 4:
+                continue
+            # skip anything already in the registry (fuzzy)
+            if key in known or difflib.get_close_matches(key, known, n=1, cutoff=0.82):
+                continue
+            lead_url = str(lead.get("url", "") or "").strip()
+            if re.search(r"eepurl\.com|mailchi\.mp|campaign-archive", lead_url):
+                lead_url = ""
+            seen_names.add(key)
+            leads.append({"name": name, "url": lead_url, "source": label, "seen": TODAY})
+        time.sleep(0.3)
 
-        dup_reason = existing.match(program)
-        if dup_reason:
-            print(f"    KNOWN ({dup_reason}): {program.get('name', '?')!r}")
-            counters["skipped_dup"] += 1
-            continue
-
-        try:
-            create_program_record(program, orgs, discovery_source=discovery_label, dry_run=dry_run)
-            display = _program_display_name(
-                program.get("name", ""), program.get("cycle_name", "")
-            )
-            print(f"    ADDED (Discovery): {display!r}")
-            existing.register(program)
-            counters["created"] += 1
-            counters["pending"].append(f"{display} [via {discovery_label}]")
-        except requests.HTTPError as exc:
-            body = exc.response.text if exc.response is not None else ""
-            print(f"    ERROR adding {program.get('name')!r}: {exc} — {body[:200]}")
+    print(f"  {len(leads)} new lead(s)", flush=True)
+    return leads
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Find and sync Triangle startup programs to Airtable."
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Print what would be created/patched without writing to Airtable.",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    if not ANTHROPIC_API_KEY:
-        sys.exit("ERROR: ANTHROPIC_API_KEY is not set.")
-    if not AIRTABLE_API_KEY:
-        sys.exit("ERROR: AIRTABLE_API_KEY is not set.")
+    if not AIRTABLE_API_KEY or not ANTHROPIC_API_KEY:
+        print("ERROR: AIRTABLE_API_KEY and ANTHROPIC_API_KEY must be set")
+        sys.exit(1)
 
-    if args.dry_run:
-        print("=== DRY RUN MODE — no Airtable writes will occur ===\n")
+    registry = load_registry()
+    print(f"Registry: {len(registry)} program(s) loaded from programs.yaml", flush=True)
+
+    print("Fetching Airtable state…", flush=True)
+    records = fetch_airtable_programs()
+    orgs    = fetch_organizations()
+    print(f"  {len(records)} program record(s), {len(orgs)} organization(s)", flush=True)
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    counters = {"created": 0, "deadlines_set": 0, "cycles_closed": 0,
+                "dead_links": 0, "pages_crawled": 0}
 
-    # Schema fields are managed manually in Airtable; skip auto-creation
+    print(f"\n=== Syncing {len(registry)} registry programs ===", flush=True)
+    for i, program in enumerate(registry, 1):
+        print(f"\n  [{i}/{len(registry)}] {program['name']}"
+              f" ({program['cadence']})", flush=True)
+        try:
+            sync_program(program, records, orgs, client, counters, args.dry_run)
+        except Exception as exc:
+            print(f"    ERROR: {exc}", flush=True)
 
-    print("Fetching organizations from Airtable…", flush=True)
-    orgs = load_orgs()
-    print(f"  {len(orgs)} organization(s) loaded.", flush=True)
-
-    print("Fetching existing programs from Airtable…", flush=True)
-    existing = get_existing_programs()
-    print(f"  {len(existing.records)} program record(s) indexed.", flush=True)
-
-    counters: dict = {
-        "created":     0,
-        "corrected":   0,
-        "stale":       0,
-        "skipped_dup": 0,
-        "pending":     [],   # list of display names created as Pending Review
-    }
-
-    pass1_refresh(existing, client, counters, args.dry_run)
-    pass2_curated(existing, orgs, client, counters, args.dry_run)
-    pass3_discovery(existing, orgs, client, counters, args.dry_run)
-
-    # End-of-run digest
-    print("\n" + "=" * 60)
-    print("RUN SUMMARY")
-    print("=" * 60)
-    print(f"  Created (Pending Review): {counters['created']}")
-    print(f"  Corrected (deadline patched): {counters['corrected']}")
-    print(f"  Stale (logged, not archived): {counters['stale']}")
-    print(f"  Skipped (duplicate): {counters['skipped_dup']}")
+    leads = run_discovery(registry, client)
     if args.dry_run:
-        print("  [DRY RUN — no records were written]")
-
-    if counters["pending"]:
-        print(f"\nPending Review records created ({len(counters['pending'])} total):")
-        for name in counters["pending"]:
-            print(f"  - {name}")
+        print(f"  [DRY RUN] WOULD WRITE {len(leads)} lead(s) to {LEADS_FILE}", flush=True)
     else:
-        print("\nNo new records created.")
+        with open(LEADS_FILE, "w") as f:
+            json.dump(leads, f, indent=2)
+
+    print("\n" + "=" * 60, flush=True)
+    print("RUN SUMMARY", flush=True)
+    print("=" * 60, flush=True)
+    print(f"  Records created:        {counters['created']}", flush=True)
+    print(f"  Deadlines set/updated:  {counters['deadlines_set']}", flush=True)
+    print(f"  Cycles closed:          {counters['cycles_closed']}", flush=True)
+    print(f"  Dead links flagged:     {counters['dead_links']}", flush=True)
+    print(f"  Pages crawled:          {counters['pages_crawled']}", flush=True)
+    print(f"  Discovery leads:        {len(leads)}", flush=True)
 
 
 if __name__ == "__main__":

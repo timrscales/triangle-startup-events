@@ -1,0 +1,538 @@
+# Registry of grants & programs for Triangle founders.
+#
+# This file is the source of truth for WHICH programs exist. The weekly
+# scraper (find_programs.py) never invents program records — it syncs this
+# list to Airtable and hunts each program's current application deadline.
+#
+# Fields per entry:
+#   name          (required) Program name — becomes Airtable "Program Name"
+#   org           (required) Hosting organization (fuzzy-linked to Organizations table)
+#   url           (required) Canonical program page — becomes "Program URL"
+#   hunt_urls     (optional) Extra pages to check for deadlines (announcement/apply pages)
+#   type          (required) Accelerator | Incubator | Bootcamp | Competition |
+#                            Grant | Fellowship | Recognition | Corporate Program
+#   cadence       (required) cyclical (has application windows) | rolling (always open)
+#   geo_scope     (required) Triangle-Local | NC-Regional | National | Global
+#   cost          (required) Free | Equity Only | Cash Fee | Equity + Cash Fee
+#   location_remote (required) In-person | Remote | Hybrid
+#   audience      (optional) list; default [All Founders]
+#   stage_served  (optional) list from: Idea Stage, Building, Early Traction, Scaling
+#   what_you_offer (optional) list from: Funding, Investor access, Mentorship,
+#                  Curriculum, Network/community, Customer/pilot access, Workspace/facilities
+#   relocation_required (optional) bool, default false — YC only
+#   description   (required) 1–2 sentences, third person
+#
+# To add a program: append an entry and push. To retire one: delete the entry
+# (the Airtable record stays; archive it by hand).
+
+# ── Triangle ──────────────────────────────────────────────────────────────────
+
+- name: NC IDEA MICRO
+  org: NC IDEA
+  url: https://ncidea.org/nc-idea-micro/
+  hunt_urls:
+    - https://ncidea.org/grants/
+  type: Grant
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Remote
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Funding]
+  description: >-
+    $10,000 grants for early-stage North Carolina startups validating an idea,
+    awarded twice a year with no equity taken.
+
+- name: NC IDEA SEED
+  org: NC IDEA
+  url: https://ncidea.org/nc-idea-seed/
+  hunt_urls:
+    - https://ncidea.org/grants/
+  type: Grant
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Remote
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Funding, Mentorship]
+  description: >-
+    $50,000 non-dilutive grants for North Carolina startups with early traction,
+    awarded twice a year alongside mentoring support.
+
+- name: Bold Path Fellowship
+  org: NC IDEA
+  url: https://ncidea.org/bold-path-fellowship/
+  type: Fellowship
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Hybrid
+  audience: [Black Founders]
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Funding, Mentorship, Network/community]
+  description: >-
+    A fellowship supporting Black entrepreneurs in North Carolina with funding,
+    mentorship, and a peer community.
+
+- name: Propeller Pre-Accelerator
+  org: First Flight Venture Center
+  url: https://www.ffvcnc.org/propeller
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Curriculum, Mentorship, Network/community]
+  description: >-
+    First Flight's pre-accelerator preparing science and technology founders to
+    commercialize deep-tech research.
+
+- name: WheelsUP Accelerator
+  org: First Flight Venture Center
+  url: https://www.ffvcnc.org/wheelsup
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Curriculum, Mentorship, Investor access]
+  description: >-
+    An accelerator for hard-science startups at First Flight Venture Center in
+    Research Triangle Park.
+
+- name: Test Flight
+  org: First Flight Venture Center
+  url: https://www.ffvcnc.org/test-flight
+  type: Bootcamp
+  cadence: rolling
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: In-person
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Curriculum, Network/community]
+  description: >-
+    Recurring pitch-practice sessions where founders rehearse and refine their
+    pitch in front of peers and advisors.
+
+- name: LiftOff
+  org: First Flight Venture Center
+  url: https://www.ffvcnc.org/liftoff
+  type: Grant
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Remote
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Funding]
+  description: >-
+    A First Flight program helping deep-tech startups pursue non-dilutive
+    federal funding.
+
+- name: Wingspan
+  org: First Flight Venture Center
+  url: https://www.ffvcnc.org/wingspan
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Early Traction, Scaling]
+  what_you_offer: [Mentorship, Investor access]
+  description: >-
+    A growth-stage program at First Flight Venture Center for scaling
+    science-based companies.
+
+- name: FAST SBIR/STTR Program
+  org: First Flight Venture Center
+  url: https://www.ffvcnc.org/202425-fast-program
+  type: Bootcamp
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Remote
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Curriculum, Funding]
+  description: >-
+    Training and support for North Carolina founders applying for SBIR/STTR
+    federal grants, backed by the SBA FAST partnership.
+
+- name: Idea to Entrepreneur
+  org: American Underground
+  url: https://americanunderground.com/idea-to-entrepreneur/
+  type: Bootcamp
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: In-person
+  stage_served: [Idea Stage]
+  what_you_offer: [Curriculum, Network/community]
+  description: >-
+    American Underground's cohort program walking first-time founders from idea
+    to a validated business concept.
+
+- name: Launch Powered by KPMG
+  org: Launch Chapel Hill
+  url: https://www.launchchapelhill.com/kpmg-accelerator
+  hunt_urls:
+    - https://www.launchchapelhill.com/
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Curriculum, Mentorship, Network/community]
+  description: >-
+    Launch Chapel Hill's flagship accelerator, running spring and fall cohorts
+    for Triangle-area startups.
+
+- name: Launch Student Accelerators
+  org: Launch Chapel Hill
+  url: https://www.launchchapelhill.com/summer-student-accelerators-1
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: In-person
+  audience: [Student Founders]
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Curriculum, Mentorship, Workspace/facilities]
+  description: >-
+    Summer accelerator cohorts for student founders at Launch Chapel Hill.
+
+- name: Andrews Launch Accelerator
+  org: NC State Entrepreneurship Clinic
+  url: https://entrepreneurshipclinic.ncsu.edu/accelerator/
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: In-person
+  audience: [Student Founders]
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Funding, Curriculum, Mentorship]
+  description: >-
+    NC State's summer accelerator providing student founders funding, mentorship,
+    and workspace to build their ventures full-time.
+
+- name: LaunchPad
+  org: NC State Entrepreneurship
+  url: https://entrepreneurship.ncsu.edu/launchpad/
+  type: Incubator
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: In-person
+  audience: [Student Founders]
+  stage_served: [Idea Stage]
+  what_you_offer: [Curriculum, Network/community]
+  description: >-
+    NC State's entry-point incubator for students exploring a startup idea for
+    the first time.
+
+- name: Miller Fellowship
+  org: NC State Entrepreneurship
+  url: https://entrepreneurship.ncsu.edu/miller-fellowship/
+  type: Fellowship
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: In-person
+  audience: [Student Founders]
+  stage_served: [Building]
+  what_you_offer: [Funding, Mentorship]
+  description: >-
+    A funded fellowship letting NC State student founders work on their startup
+    over the summer.
+
+- name: Social Innovation Fellows
+  org: NC State Entrepreneurship
+  url: https://ssie.entrepreneurship.ncsu.edu/social-innovation-fellows/
+  type: Fellowship
+  cadence: cyclical
+  geo_scope: Triangle-Local
+  cost: Free
+  location_remote: In-person
+  audience: [Student Founders]
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Curriculum, Mentorship, Network/community]
+  description: >-
+    A year-long fellowship for NC State students building ventures with social
+    or environmental impact.
+
+- name: Big Launch Challenge
+  org: The Launch Place
+  url: https://www.thelaunchplace.org/big-launch-challenge
+  type: Competition
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: In-person
+  stage_served: [Idea Stage, Building, Early Traction]
+  what_you_offer: [Funding, Investor access]
+  description: >-
+    An annual pitch competition run by The Launch Place with cash prizes and
+    investor exposure for regional startups.
+
+- name: IdeaFest
+  org: The Launch Place
+  url: https://www.thelaunchplace.org/ideafest
+  type: Competition
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: In-person
+  stage_served: [Idea Stage]
+  what_you_offer: [Funding, Network/community]
+  description: >-
+    The Launch Place's annual idea-stage pitch event awarding seed money to
+    promising concepts.
+
+- name: RIoT Accelerator Program
+  org: RIoT
+  url: https://riot.org/startup-accelerator/
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Curriculum, Mentorship, Customer/pilot access]
+  description: >-
+    RIoT's equity-free accelerator for IoT and data-driven startups, connecting
+    founders with corporate partners.
+
+- name: Joules Accelerator
+  org: Joules Accelerator
+  url: https://www.joulesaccelerator.com/the-accelerator
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Mentorship, Customer/pilot access, Investor access]
+  description: >-
+    A cleantech accelerator running two North Carolina cohorts per year,
+    connecting energy startups with utilities and investors.
+
+# ── NC-statewide ─────────────────────────────────────────────────────────────
+
+- name: One NC Small Business Program
+  org: NC Department of Commerce
+  url: https://www.commerce.nc.gov/grants-incentives/technology-funds/one-north-carolina-small-business-program
+  type: Grant
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Remote
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Funding]
+  description: >-
+    State matching funds for North Carolina companies that win federal SBIR/STTR
+    Phase I awards.
+
+- name: NCBiotech Company Funding
+  org: North Carolina Biotechnology Center
+  url: https://www.ncbiotech.org/funding/company-funding
+  type: Grant
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Remote
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Funding]
+  description: >-
+    Loans and grants from the North Carolina Biotechnology Center for life
+    science companies at multiple stages.
+
+- name: NSF I-Corps Hub Program
+  org: NC State University
+  url: https://kenan.ncsu.edu/initiative/nc-state-nsf-i-corps-hub-program
+  type: Bootcamp
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: Hybrid
+  stage_served: [Idea Stage]
+  what_you_offer: [Funding, Curriculum]
+  description: >-
+    NSF-funded customer discovery training for science and engineering teams
+    exploring commercialization, with grants for participants.
+
+- name: NC TECH Awards
+  org: NC TECH Association
+  url: https://www.nctech.org/awards/
+  type: Recognition
+  cadence: cyclical
+  geo_scope: NC-Regional
+  cost: Free
+  location_remote: In-person
+  stage_served: [Early Traction, Scaling]
+  what_you_offer: [Network/community]
+  description: >-
+    Annual statewide awards recognizing North Carolina's top technology
+    companies and startups.
+
+# ── National / remote ────────────────────────────────────────────────────────
+
+- name: Y Combinator
+  org: Y Combinator
+  url: https://www.ycombinator.com/apply
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Global
+  cost: Equity Only
+  location_remote: In-person
+  relocation_required: true
+  stage_served: [Idea Stage, Building, Early Traction]
+  what_you_offer: [Funding, Investor access, Network/community]
+  description: >-
+    The world's best-known startup accelerator, investing $500K in each company
+    across four batches a year in San Francisco.
+
+- name: Techstars Anywhere
+  org: Techstars
+  url: https://www.techstars.com/accelerators/anywhere
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: National
+  cost: Equity Only
+  location_remote: Remote
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Funding, Mentorship, Investor access]
+  description: >-
+    Techstars' fully remote accelerator, letting founders join without
+    relocating.
+
+- name: Founder Institute
+  org: Founder Institute
+  url: https://fi.co/
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: Global
+  cost: Cash Fee
+  location_remote: Remote
+  stage_served: [Idea Stage]
+  what_you_offer: [Curriculum, Mentorship, Network/community]
+  description: >-
+    A structured pre-seed program helping first-time founders go from idea to
+    funded company, run in cohorts worldwide.
+
+- name: Black Ambition Prize
+  org: Black Ambition
+  url: https://blackambitionprize.com/
+  type: Competition
+  cadence: cyclical
+  geo_scope: National
+  cost: Free
+  location_remote: Remote
+  audience: [Black Founders, Latino Founders]
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Funding, Mentorship]
+  description: >-
+    A national prize competition founded by Pharrell Williams awarding up to $1M
+    to Black and Hispanic founders.
+
+- name: Tory Burch Foundation Fellows
+  org: Tory Burch Foundation
+  url: https://www.toryburchfoundation.org/fellows/
+  type: Fellowship
+  cadence: cyclical
+  geo_scope: National
+  cost: Free
+  location_remote: Remote
+  audience: [Women Founders]
+  stage_served: [Early Traction, Scaling]
+  what_you_offer: [Funding, Curriculum, Network/community]
+  description: >-
+    A year-long fellowship for women entrepreneurs including education, a grant,
+    and a national peer network.
+
+- name: Military Founders Lab
+  org: Syracuse University IVMF
+  url: https://ivmf.syracuse.edu/programs/entrepreneurship/start-up/military-founders-lab/
+  type: Accelerator
+  cadence: cyclical
+  geo_scope: National
+  cost: Free
+  location_remote: Remote
+  audience: [Veteran Founders]
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Curriculum, Mentorship, Network/community]
+  description: >-
+    A free virtual accelerator for veteran and military-connected founders, run
+    in multiple cohorts per year.
+
+- name: Warrior Rising
+  org: Warrior Rising
+  url: https://warriorrising.org/apply/
+  type: Incubator
+  cadence: rolling
+  geo_scope: National
+  cost: Free
+  location_remote: Remote
+  audience: [Veteran Founders]
+  stage_served: [Idea Stage, Building]
+  what_you_offer: [Mentorship, Funding, Network/community]
+  description: >-
+    A nonprofit providing veterans free coaching, mentorship, and grants to
+    start and grow businesses; applications accepted year-round.
+
+- name: AWS Activate
+  org: Amazon Web Services
+  url: https://aws.amazon.com/activate/
+  type: Corporate Program
+  cadence: rolling
+  geo_scope: Global
+  cost: Free
+  location_remote: Remote
+  stage_served: [Idea Stage, Building, Early Traction]
+  what_you_offer: [Funding, Customer/pilot access]
+  description: >-
+    AWS credits and technical support for startups, applied for on a rolling
+    basis.
+
+- name: Microsoft for Startups
+  org: Microsoft
+  url: https://www.microsoft.com/en-us/startups
+  type: Corporate Program
+  cadence: rolling
+  geo_scope: Global
+  cost: Free
+  location_remote: Remote
+  stage_served: [Idea Stage, Building, Early Traction]
+  what_you_offer: [Funding, Customer/pilot access]
+  description: >-
+    Azure credits, developer tools, and go-to-market support for startups from
+    Microsoft, open year-round.
+
+- name: NVIDIA Inception
+  org: NVIDIA
+  url: https://www.nvidia.com/en-us/deep-learning-ai/startups/
+  type: Corporate Program
+  cadence: rolling
+  geo_scope: Global
+  cost: Free
+  location_remote: Remote
+  stage_served: [Building, Early Traction, Scaling]
+  what_you_offer: [Customer/pilot access, Network/community]
+  description: >-
+    NVIDIA's free program for AI startups offering technical resources, credits,
+    and investor connections.
+
+- name: Google for Startups
+  org: Google
+  url: https://startup.google.com/
+  type: Corporate Program
+  cadence: rolling
+  geo_scope: Global
+  cost: Free
+  location_remote: Remote
+  stage_served: [Building, Early Traction]
+  what_you_offer: [Funding, Curriculum, Network/community]
+  description: >-
+    Google's programs and cloud credits for startups, including targeted
+    accelerators announced throughout the year.
