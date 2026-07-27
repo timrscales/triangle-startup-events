@@ -1814,7 +1814,10 @@ def main():
     print("\n[14/15] The Loading Dock…")
     all_events.extend(fetch_loading_dock_events("https://www.theloadingdock.com/new-events", today, end_date))
 
-    print("\n[15/15] 1 Million Cups — Durham (Playwright + Claude)…")
+    print("\n[15/16] Triangle Workshops…")
+    all_events.extend(fetch_luma_events("https://luma.com/calendar/cal-tlr9liL5aoVLyOZ", today, end_date))
+
+    print("\n[16/16] 1 Million Cups — Durham (Playwright + Claude)…")
     all_events.extend(fetch_1mc_events(
         "https://www.1millioncups.com/s/account/0014W00002AqQfOQAV/durham-nc",
         client, today, end_date,
