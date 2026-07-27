@@ -64,16 +64,21 @@ LEADS_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "disc
 TODAY      = date.today().isoformat()
 TODAY_DATE = date.today()
 
-# Deadline-hunt budgets
+# Deadline-hunt budgets (Playwright fallback pages take ~5s each, so the
+# time budget allows a handful of rendered pages per program)
 HUNT_MAX_PAGES   = 6
-HUNT_MAX_SECONDS = 35
+HUNT_MAX_SECONDS = 50
 
 BROWSER_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+               "image/avif,image/webp,*/*;q=0.8"),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 ALLOWED_DEADLINE_TYPE = ["Fixed", "Rolling", "Annual - TBD"]
@@ -123,11 +128,21 @@ _LINK_SCORES = [
 
 
 def _deadline_hints(page_text: str) -> list[str]:
-    """Lines that mention both a date and deadline language."""
-    hits = []
-    for line in page_text.splitlines():
-        if _DEADLINE_KW_RE.search(line) and _DATE_RE.search(line):
-            hits.append(line.strip())
+    """
+    Snippets that mention both a date and deadline language. Scans a sliding
+    window of 3 lines because page text often splits label and date
+    ("Applications Due:" / "August 24th") across lines.
+    """
+    lines = [l.strip() for l in page_text.splitlines() if l.strip()]
+    hits: list[str] = []
+    seen: set[str] = set()
+    for i in range(len(lines)):
+        window = " ".join(lines[i:i + 3])
+        if _DEADLINE_KW_RE.search(window) and _DATE_RE.search(window):
+            snippet = window[:200]
+            if snippet not in seen:
+                seen.add(snippet)
+                hits.append(snippet)
         if len(hits) >= 12:
             break
     return hits
@@ -180,12 +195,20 @@ def _fetch_page(url: str) -> tuple[str, list[tuple[str, str]], int]:
 
 
 def _playwright_fetch(url: str, label: str) -> tuple[str, list[tuple[str, str]]]:
-    """Render a JS-heavy page. Returns (text, links) or ("", [])."""
+    """
+    Render a page in a real browser. Uses the full Chromium binary in new
+    headless mode (channel='chromium') because the default headless shell has
+    a fingerprint that WordPress firewalls (e.g. ncidea.org) block with 403.
+    Returns (text, links) or ("", []).
+    """
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(user_agent=BROWSER_HEADERS["User-Agent"])
+            try:
+                browser = p.chromium.launch(headless=True, channel="chromium")
+            except Exception:
+                browser = p.chromium.launch(headless=True)
+            page = browser.new_page(locale="en-US")
             page.goto(url, timeout=30000)
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
@@ -203,6 +226,21 @@ def _playwright_fetch(url: str, label: str) -> tuple[str, list[tuple[str, str]]]
     except Exception as exc:
         print(f"    Playwright failed for {label}: {exc}", flush=True)
         return "", []
+
+
+def _fetch_page_smart(url: str, label: str) -> tuple[str, list[tuple[str, str]], int]:
+    """
+    Fetch with requests; fall back to Playwright when blocked (403/406) or when
+    the page returns little text (JS-rendered or bot-walled sites like
+    ncidea.org and ycombinator.com). Returns (text, links, status).
+    """
+    text, links, status = _fetch_page(url)
+    blocked = status in (403, 406, 429) or (status < 400 and len(text) < 200)
+    if blocked:
+        pw_text, pw_links = _playwright_fetch(url, label)
+        if pw_text:
+            return pw_text, pw_links, 200
+    return text, links, status
 
 
 def _is_404_or_gone(text: str) -> bool:
@@ -296,13 +334,12 @@ def hunt_deadline(program: dict, client: anthropic.Anthropic) -> dict:
             continue
         seen.add(key)
 
-        text, links, status = _fetch_page(url)
+        text, links, status = _fetch_page_smart(url, name)
         is_canonical = url == program["url"]
-        if is_canonical and (not text or len(text) < 200):
-            # JS-heavy page (e.g. ycombinator.com) — render it
-            text, links = _playwright_fetch(url, name)
         if not text:
-            if is_canonical and status >= 400:
+            # 403/429 is bot-blocking, not a dead program — only true
+            # not-found statuses count as dead.
+            if is_canonical and status in (404, 410):
                 result["dead_link"] = True
             continue
         if is_canonical and _is_404_or_gone(text):
@@ -406,7 +443,8 @@ def _find_record(program: dict, records: list[dict]) -> dict | None:
     return by_name
 
 
-def create_record(program: dict, org_id: str | None, dry_run: bool) -> None:
+def create_record(program: dict, org_id: str | None, dry_run: bool) -> dict | None:
+    """Create the Airtable record. Returns the created record, or None."""
     fields: dict = {
         "Program Name":        program["name"],
         "Description":         str(program.get("description", "")).strip(),
@@ -431,15 +469,16 @@ def create_record(program: dict, org_id: str | None, dry_run: bool) -> None:
 
     if dry_run:
         print(f"    [DRY RUN] WOULD CREATE: {program['name']}", flush=True)
-        return
+        return None
     resp = requests.post(AIRTABLE_PROGRAMS_URL, headers=_at_headers(),
                          json={"fields": fields}, timeout=30)
     if resp.status_code >= 400:
         print(f"    ERROR creating {program['name']!r}: {resp.status_code} {resp.text[:200]}",
               flush=True)
-        return
+        return None
     print(f"    CREATED (Pending Review): {program['name']}", flush=True)
     time.sleep(0.25)
+    return resp.json()
 
 
 def patch_record(record_id: str, fields: dict, dry_run: bool) -> None:
@@ -490,14 +529,13 @@ def sync_program(
     record = _find_record(program, records)
 
     if record is None:
-        create_record(program, _match_org(program["org"], orgs), dry_run)
+        record = create_record(program, _match_org(program["org"], orgs), dry_run)
         counters["created"] += 1
-        if program["cadence"] == "rolling":
+        if record is None:  # dry-run or create failure — nothing to patch yet
+            if program["cadence"] == "cyclical":
+                print(f"    (deadline hunt deferred — no record id)", flush=True)
             return
-        # fall through to hunt for brand-new cyclical programs? We can't patch
-        # a record we didn't get an id back for in dry-run; hunt next week.
-        print(f"    (deadline hunt starts next run, once the record exists)", flush=True)
-        return
+        # Newly created record: continue straight into the deadline hunt below.
 
     fields       = record.get("fields", {})
     record_id    = record["id"]
@@ -505,8 +543,8 @@ def sync_program(
     patch: dict  = {"Last Verified": TODAY}
 
     if program["cadence"] == "rolling":
-        text, _, status = _fetch_page(program["url"])
-        if status >= 400 or (text and _is_404_or_gone(text)):
+        text, _, status = _fetch_page_smart(program["url"], program["name"])
+        if status in (404, 410) or (text and _is_404_or_gone(text)):
             patch["Pending Changes"] = _append_note(
                 str(fields.get("Pending Changes", "") or ""),
                 f"DEAD LINK: {program['url']} returned {status or 'error page'}")
