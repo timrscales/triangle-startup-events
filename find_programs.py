@@ -581,7 +581,7 @@ _EXTRACTION_SCHEMA = (
     "  audience (array from: {audience} — use [\"All Founders\"] if unrestricted),\n"
     "  relocation_required (bool — true ONLY for Y Combinator in-person cohort),\n"
     "  deadline_type (one of: {deadline_type}),\n"
-    "  next_deadline (YYYY-MM-DD if a specific deadline is visible, else empty string),\n"
+    "  next_deadline (YYYY-MM-DD if a specific deadline is visible anywhere on the page, else empty string),\n"
     "  cycle_name (e.g. \"Fall 2026\" or \"Spring 2026\" if a named cohort, else empty string),\n"
     "  source_url (the program's specific page URL — NOT the org homepage unless no better URL exists).\n\n"
     "SCOPE RULES:\n"
@@ -594,8 +594,56 @@ _EXTRACTION_SCHEMA = (
     "  OUT: Programs whose audience is not founders.\n"
     "  OUT: City-bound cohorts outside NC (exception: Y Combinator — keep, relocation_required=true).\n"
     "  NEVER create a record with deadline_type=Fixed and empty next_deadline.\n"
-    "  Return [] if no applicable programs found."
+    "  Return [] if no applicable programs found.\n\n"
+    "DEDUP RULES:\n"
+    "  For programs with many city/location variants (e.g. gBETA Chicago, gBETA Fargo, gBETA Nevada):\n"
+    "    - Include ONLY the national/remote version, OR any NC-specific cohort.\n"
+    "    - Do NOT create one record per city outside NC.\n"
+    "  For each program URL, return at most ONE record:\n"
+    "    - If a current named cohort (e.g. 'Fall 2026') is visible, use it; skip the generic entry.\n"
+    "    - If only a generic program is visible, return it once.\n\n"
+    "DEADLINE RULES:\n"
+    "  Scan the ENTIRE page for dates near words: deadline, apply by, applications close,\n"
+    "  applications due, submit by, last day to apply, open until.\n"
+    "  If you find a date, set deadline_type=Fixed and next_deadline=YYYY-MM-DD.\n"
+    "  If the program is always open with no window, use Rolling.\n"
+    "  If there is an annual cycle but no date visible yet, use Annual - TBD."
 )
+
+
+_DATE_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    r"\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*\d{4})?"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b",
+    re.IGNORECASE,
+)
+_DEADLINE_KW_RE = re.compile(
+    r"deadline|apply\s+by|applications?\s+(?:close|due|open|end)|due\s+date|"
+    r"submit\s+by|last\s+day\s+to\s+apply|open\s+until|accepting\s+applications",
+    re.IGNORECASE,
+)
+_APPLY_LINK_RE = re.compile(r"apply|application|deadline|register", re.IGNORECASE)
+
+
+def _deadline_hints(page_text: str) -> str:
+    """Extract lines mentioning both a deadline keyword and a date. Used as Claude context."""
+    hits = []
+    for line in page_text.splitlines():
+        if _DEADLINE_KW_RE.search(line) and _DATE_RE.search(line):
+            hits.append(line.strip())
+        if len(hits) >= 10:
+            break
+    return "\n".join(hits)
+
+
+def _find_apply_links(links: list[str], base_url: str) -> list[str]:
+    """Return up to 3 links that look like application or deadline pages."""
+    candidates = [
+        l for l in links
+        if l.startswith("http") and l != base_url and _APPLY_LINK_RE.search(l)
+    ]
+    return candidates[:3]
 
 
 def _build_extraction_prompt(label: str, url: str, page_text: str) -> str:
@@ -609,9 +657,12 @@ def _build_extraction_prompt(label: str, url: str, page_text: str) -> str:
         audience=", ".join(ALLOWED_AUDIENCE),
         deadline_type=", ".join(ALLOWED_DEADLINE_TYPE),
     )
+    hints = _deadline_hints(page_text)
+    hint_block = f"\nDEADLINE HINTS (lines mentioning dates + deadlines):\n{hints}\n" if hints else ""
     return (
         f"Extract all startup programs a founder can apply to from this page for '{label}' ({url}).\n\n"
-        f"{schema}\n\n"
+        f"{schema}\n"
+        f"{hint_block}\n"
         f"Page content:\n{page_text}"
     )
 
@@ -741,6 +792,43 @@ def fetch_source_page(label: str, url: str, client: anthropic.Anthropic) -> list
     all_programs = programs + [p for p in detail_programs if p not in programs]
     for p in all_programs:
         p.setdefault("host", label)
+
+    # Dedup by source_url: prefer cycle-named record over generic for same URL
+    url_index: dict[str, int] = {}
+    deduped: list[dict] = []
+    for p in all_programs:
+        key = _norm_url(str(p.get("source_url", "") or ""))
+        if key in url_index:
+            existing = deduped[url_index[key]]
+            if p.get("cycle_name") and not existing.get("cycle_name"):
+                deduped[url_index[key]] = p
+        else:
+            url_index[key] = len(deduped)
+            deduped.append(p)
+    all_programs = deduped
+
+    # For programs still missing a deadline, try following apply links
+    apply_links = _find_apply_links(links, url)
+    if apply_links:
+        for p in all_programs:
+            if p.get("next_deadline") or p.get("deadline_type") == "Rolling":
+                continue
+            for al in apply_links:
+                al_text = _requests_fetch(al, f"{label} apply-link")
+                if not al_text:
+                    continue
+                extracted = _extract_deadline_via_claude(
+                    p.get("name", label), al, al_text, client
+                )
+                nd = str(extracted.get("next_deadline", "") or "").strip()[:10]
+                if nd and re.match(r"\d{4}-\d{2}-\d{2}", nd):
+                    p["next_deadline"] = nd
+                    p["deadline_type"] = "Fixed"
+                    if extracted.get("cycle_name"):
+                        p.setdefault("cycle_name", extracted["cycle_name"])
+                    break
+            time.sleep(0.2)
+
     print(f"  {label}: {len(all_programs)} program(s) extracted")
     return all_programs
 
@@ -751,12 +839,17 @@ def _extract_deadline_via_claude(
     program_name: str, url: str, page_text: str, client: anthropic.Anthropic
 ) -> dict:
     """Ask Claude for just the deadline of a known program. Returns partial dict."""
+    hints = _deadline_hints(page_text)
+    hint_block = f"\nLines mentioning dates + deadlines:\n{hints}\n" if hints else ""
     prompt = (
         f"Given this page about the program '{program_name}', extract application deadline info.\n"
+        f"Scan the ENTIRE page for dates near words like: deadline, apply by, applications close,\n"
+        f"applications due, submit by, last day to apply, open until.\n"
         f"Return ONLY valid JSON with these keys:\n"
         f"  next_deadline: YYYY-MM-DD if a specific deadline is visible, else empty string\n"
         f"  deadline_type: one of {ALLOWED_DEADLINE_TYPE} or empty string\n"
-        f"  cycle_name: named cohort like 'Fall 2026' or empty string\n\n"
+        f"  cycle_name: named cohort like 'Fall 2026' or empty string\n"
+        f"{hint_block}\n"
         f"Page content:\n{page_text[:6000]}"
     )
     try:
@@ -803,6 +896,7 @@ def pass1_refresh(
         print(f"  [{i}/{len(refreshable)}] {prog_name[:60]}…")
 
         # Try requests first, fall back to Playwright
+        page_links: list[str] = []
         try:
             resp = requests.get(prog_url, headers=BROWSER_HEADERS, timeout=15)
             status_code = resp.status_code
@@ -811,6 +905,10 @@ def pass1_refresh(
                 counters["stale"] += 1
                 continue
             soup = BeautifulSoup(resp.text, "html.parser")
+            page_links = [
+                a["href"] for a in soup.find_all("a", href=True)
+                if str(a["href"]).startswith("http")
+            ]
             for tag in soup(["script", "style", "nav", "footer", "noscript"]):
                 tag.decompose()
             page_text = soup.get_text(separator="\n", strip=True)
@@ -820,7 +918,7 @@ def pass1_refresh(
             continue
         except Exception as exc:
             print(f"    WARNING: Fetch failed — {exc}; trying Playwright")
-            page_text, _ = _playwright_fetch(prog_url, prog_name)
+            page_text, page_links = _playwright_fetch(prog_url, prog_name)
             if not page_text:
                 print(f"    STALE: Could not fetch page")
                 counters["stale"] += 1
@@ -829,7 +927,6 @@ def pass1_refresh(
         if _is_404_or_gone(page_text):
             print(f"    STALE: Page indicates program no longer available")
             counters["stale"] += 1
-            # Always update Last Verified even for stale programs
             patch_fields = {"Last Verified": TODAY}
             try:
                 patch_program_record(record_id, patch_fields, dry_run)
@@ -844,11 +941,26 @@ def pass1_refresh(
         new_dtype    = str(extracted.get("deadline_type", "") or "").strip()
         new_cycle    = str(extracted.get("cycle_name", "") or "").strip()
 
+        # If no fixed deadline yet, follow apply links and retry
+        if not (new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline)):
+            for al in _find_apply_links(page_links, prog_url):
+                al_text = _requests_fetch(al, f"{prog_name} apply-link")
+                if not al_text:
+                    continue
+                al_extracted = _extract_deadline_via_claude(prog_name, al, al_text, client)
+                al_deadline = str(al_extracted.get("next_deadline", "") or "").strip()[:10]
+                if al_deadline and re.match(r"\d{4}-\d{2}-\d{2}", al_deadline):
+                    new_deadline = al_deadline
+                    new_dtype = "Fixed"
+                    new_cycle = new_cycle or str(al_extracted.get("cycle_name", "") or "")
+                    print(f"    Found deadline via apply link: {new_deadline}")
+                    break
+                time.sleep(0.2)
+
         if new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline):
             if new_deadline != old_deadline:
                 print(f"    CORRECTED: deadline {old_deadline or '(none)'!r} → {new_deadline!r}")
-                patch_fields["Next Deadline"]        = new_deadline
-                patch_fields["Application Deadline"] = new_deadline
+                patch_fields["Next Deadline"] = new_deadline
                 counters["corrected"] += 1
             else:
                 print(f"    OK: deadline unchanged ({old_deadline})")
