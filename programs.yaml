@@ -382,7 +382,7 @@
   type: Incubator
   cadence: cyclical
   geo_scope: Triangle-Local
-  cost: Free
+  cost: Cash Fee
   location_remote: Hybrid
   stage_served: [Idea Stage, Building]
   what_you_offer: [Curriculum, Mentorship, Funding, Network/community]
