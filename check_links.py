@@ -245,7 +245,7 @@ def fetch_programs_to_check() -> list[dict]:
     params  = {
         "filterByFormula": formula,
         "fields[]": ["Program Name", "Program URL", "Status",
-                     "Application Deadline", "Pending Changes"],
+                     "Next Deadline", "Pending Changes"],
     }
     records = []
     offset  = None
@@ -270,7 +270,7 @@ def fetch_programs_to_check() -> list[dict]:
                 "name":             f.get("Program Name", ""),
                 "status":           f.get("Status", ""),
                 "program_url":      src,
-                "deadline":         f.get("Application Deadline", ""),
+                "deadline":         f.get("Next Deadline", ""),
                 "pending_changes":  f.get("Pending Changes", ""),
             })
     return programs

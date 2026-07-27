@@ -122,7 +122,7 @@ def fetch_pending_programs() -> list[dict]:
     params  = {
         "filterByFormula": formula,
         "fields[]": [
-            "Program Name", "Program Type", "Application Deadline",
+            "Program Name", "Program Type", "Next Deadline",
             "Program URL", "What You Offer", "Pending Changes", "Status",
         ],
         "sort[0][field]":     "Program Name",
@@ -148,7 +148,7 @@ def fetch_pending_programs() -> list[dict]:
             "record_id":      r["id"],
             "name":           f.get("Program Name", ""),
             "program_type":   f.get("Program Type", ""),
-            "deadline":       f.get("Application Deadline", ""),
+            "deadline":       f.get("Next Deadline", ""),
             "program_url":    f.get("Program URL", ""),
             "what_you_offer": f.get("What You Offer", []),
             "pending_changes":f.get("Pending Changes", ""),
