@@ -357,6 +357,8 @@ def is_valid_program(program: dict) -> tuple[bool, str]:
         return False, "name looks like a datetime string"
     if not url:
         return False, "empty source_url"
+    if re.search(r"eepurl\.com|mailchi\.mp|campaign-archive", url):
+        return False, "source_url is a newsletter/mailing-list link, not a program page"
     deadline_type = program.get("deadline_type", "")
     next_deadline = str(program.get("next_deadline", "") or "").strip()
     if deadline_type == "Fixed" and not next_deadline:
@@ -408,8 +410,7 @@ def create_program_record(
     next_deadline  = str(program.get("next_deadline", "")  or "").strip()
     deadline_type  = str(program.get("deadline_type", "")  or "").strip()
     if next_deadline and re.match(r"\d{4}-\d{2}-\d{2}", next_deadline):
-        fields["Next Deadline"]        = next_deadline
-        fields["Application Deadline"] = next_deadline  # keep legacy field in sync
+        fields["Next Deadline"] = next_deadline
     if deadline_type in ALLOWED_DEADLINE_TYPE:
         fields["Deadline Type"] = deadline_type
     if cycle_name:
@@ -624,6 +625,49 @@ _DEADLINE_KW_RE = re.compile(
     re.IGNORECASE,
 )
 _APPLY_LINK_RE = re.compile(r"apply|application|deadline|register", re.IGNORECASE)
+
+
+def _search_deadline(program_name: str, client: anthropic.Anthropic) -> str:
+    """
+    Search DuckDuckGo for the program's current application deadline.
+    Returns YYYY-MM-DD string or empty string.
+    """
+    query = f"{program_name} 2026 application deadline"
+    try:
+        resp = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers={**BROWSER_HEADERS, "Accept-Language": "en-US,en;q=0.9"},
+            timeout=10,
+        )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        snippets = []
+        for el in soup.select(".result__snippet, .result__body"):
+            text = el.get_text(" ", strip=True)
+            if _DEADLINE_KW_RE.search(text) and _DATE_RE.search(text):
+                snippets.append(text)
+            if len(snippets) >= 5:
+                break
+        if not snippets:
+            return ""
+        context = "\n".join(snippets)
+        prompt = (
+            f"From these search result snippets about '{program_name}', "
+            f"extract the application deadline date for the 2026 cycle.\n"
+            f"Return ONLY valid JSON: {{\"next_deadline\": \"YYYY-MM-DD or empty\"}}\n\n"
+            f"Snippets:\n{context}"
+        )
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=60,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = "".join(b.text for b in response.content if hasattr(b, "type") and b.type == "text")
+        parsed = _parse_json_object(raw)
+        nd = str(parsed.get("next_deadline", "") or "").strip()[:10]
+        return nd if re.match(r"\d{4}-\d{2}-\d{2}", nd) else ""
+    except Exception:
+        return ""
 
 
 def _deadline_hints(page_text: str) -> str:
@@ -957,6 +1001,14 @@ def pass1_refresh(
                     break
                 time.sleep(0.2)
 
+        # Final fallback: web search
+        if not (new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline)):
+            search_deadline = _search_deadline(prog_name, client)
+            if search_deadline:
+                new_deadline = search_deadline
+                new_dtype = "Fixed"
+                print(f"    Found deadline via web search: {new_deadline}")
+
         if new_deadline and re.match(r"\d{4}-\d{2}-\d{2}", new_deadline):
             if new_deadline != old_deadline:
                 print(f"    CORRECTED: deadline {old_deadline or '(none)'!r} → {new_deadline!r}")
@@ -1069,7 +1121,6 @@ def _patch_if_deadline_changed(
         display = _program_display_name(program.get("name", ""), program.get("cycle_name", ""))
         print(f"    CORRECTED: {display!r} deadline {old_deadline!r} → {new_deadline!r}")
         patch_fields["Next Deadline"]        = new_deadline
-        patch_fields["Application Deadline"] = new_deadline
         counters["corrected"] += 1
 
     # Never change Status
