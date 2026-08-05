@@ -161,7 +161,7 @@ def fetch_pending_programs() -> list[dict]:
 
 # ── Formatting ────────────────────────────────────────────────────────────────
 
-AIRTABLE_EDIT_URL          = "https://airtable.com/apprt7MFT8PcVhFY4/pagn5NtFKrCDtz2Eb"
+AIRTABLE_EDIT_URL          = "https://airtable.com/apprt7MFT8PcVhFY4/pagZlJUkEB8DRwtwK"
 AIRTABLE_PROGRAMS_EDIT_URL = f"https://airtable.com/apprt7MFT8PcVhFY4/{AIRTABLE_PROGRAMS_TABLE}"
 
 def _fmt_time(t: str) -> str:
