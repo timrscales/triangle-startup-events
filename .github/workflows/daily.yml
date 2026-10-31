@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  actions: write           # Required to trigger deploy.yml
 
 jobs:
   find-events:
@@ -35,12 +34,6 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         run: python find_events.py
-
-      - name: Trigger calendar deploy
-        if: success()
-        run: gh workflow run deploy.yml --ref main
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write Gmail credentials
         run: |

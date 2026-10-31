@@ -103,18 +103,22 @@ def fetch_pending_events() -> list[dict]:
 
 
 def _fetch_org_names(org_ids: set[str]) -> dict[str, str]:
+    """Return {record_id: org_name}; one paged list call instead of one GET per org."""
     if not org_ids:
         return {}
-    url   = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Organizations"
-    names = {}
-    for oid in org_ids:
-        try:
-            resp = requests.get(f"{url}/{oid}", headers=AT_HEADERS(), timeout=15)
-            resp.raise_for_status()
-            names[oid] = resp.json().get("fields", {}).get("Organization Name", "")
-        except Exception:
-            names[oid] = ""
-    return names
+    url    = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Organizations"
+    params = {"fields[]": ["Organization Name"]}
+    names  = {oid: "" for oid in org_ids}
+    while True:
+        resp = requests.get(url, headers=AT_HEADERS(), params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        for r in data.get("records", []):
+            if r["id"] in names:
+                names[r["id"]] = r.get("fields", {}).get("Organization Name", "")
+        if not data.get("offset"):
+            return names
+        params["offset"] = data["offset"]
 
 
 def fetch_pending_programs() -> list[dict]:

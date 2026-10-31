@@ -481,17 +481,27 @@ def create_record(program: dict, org_id: str | None, dry_run: bool) -> dict | No
     return resp.json()
 
 
+_PENDING_PATCHES: list[dict] = []
+
+
 def patch_record(record_id: str, fields: dict, dry_run: bool) -> None:
+    """Queue a PATCH; flush_patches() sends them 10 per request."""
     if dry_run:
         print(f"    [DRY RUN] WOULD PATCH {record_id}: {fields}", flush=True)
         return
-    resp = requests.patch(f"{AIRTABLE_PROGRAMS_URL}/{record_id}",
-                          headers=_at_headers(), json={"fields": fields}, timeout=30)
-    if resp.status_code >= 400:
-        print(f"    ERROR patching {record_id}: {resp.status_code} {resp.text[:200]}",
-              flush=True)
-        return
-    time.sleep(0.25)
+    _PENDING_PATCHES.append({"id": record_id, "fields": fields})
+
+
+def flush_patches() -> None:
+    for i in range(0, len(_PENDING_PATCHES), 10):
+        batch = _PENDING_PATCHES[i:i + 10]
+        resp = requests.patch(AIRTABLE_PROGRAMS_URL, headers=_at_headers(),
+                              json={"records": batch}, timeout=30)
+        if resp.status_code >= 400:
+            print(f"    ERROR patching batch of {len(batch)}: "
+                  f"{resp.status_code} {resp.text[:200]}", flush=True)
+        time.sleep(0.25)
+    _PENDING_PATCHES.clear()
 
 
 def _append_note(existing: str, note: str) -> str:
@@ -687,6 +697,8 @@ def main() -> None:
             sync_program(program, records, orgs, client, counters, args.dry_run)
         except Exception as exc:
             print(f"    ERROR: {exc}", flush=True)
+
+    flush_patches()
 
     leads = run_discovery(registry, client)
     if args.dry_run:
